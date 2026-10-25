@@ -130,6 +130,7 @@
       this._samplesLoading = null;
       this._lastRevShot = 0;
       this._sampleBaseRpm = 750; // approx recorded idle of Lumamorph clip
+      this._startLock = null;
     }
 
     get engine() {
@@ -160,8 +161,9 @@
       if (this._samplesLoading) return this._samplesLoading;
       this._samplesLoading = (async () => {
         await this.ensureContext();
-        const loadOne = async (url) => {
-          const res = await fetch(url);
+        const loadOne = async (rel) => {
+          const url = new URL(rel, document.baseURI).href;
+          const res = await fetch(url, { cache: 'force-cache' });
           if (!res.ok) throw new Error('Sample fehlt: ' + url);
           const arr = await res.arrayBuffer();
           return await this.ctx.decodeAudioData(arr.slice(0));
@@ -192,36 +194,41 @@
     }
 
     async start() {
+      if (this._startLock) return this._startLock;
       this.lastError = null;
-      try {
-        await this.ensureContext();
-        if (this.soundMode === 'sample') {
-          await this.loadSamples();
-        }
-        // Second resume after graph build (some mobile browsers need it)
-        if (this.ctx.state === 'suspended') await this.ctx.resume();
-        if (this.running) {
+      this._startLock = (async () => {
+        try {
+          await this.ensureContext();
+          if (this.soundMode === 'sample') {
+            await this.loadSamples();
+          }
+          if (this.ctx.state === 'suspended') await this.ctx.resume();
+          if (this.running) {
+            this.audioState = this.ctx.state;
+            return;
+          }
+          this._buildGraph();
+          if (this.ctx.state === 'suspended') await this.ctx.resume();
+          this.running = true;
+          this.rpm = this.engine.idleRpm;
+          this.targetRpm = this.rpm;
+          this.load = 0.18;
+          this.gear = Math.min(this.gear || 1, this.maxGear);
+          if (this.gear < 1) this.gear = 1;
+          this._lastT = this.ctx.currentTime;
+          this._applyVoice(true);
+          this._startClick();
           this.audioState = this.ctx.state;
-          return;
+          this._tick = requestAnimationFrame(() => this._loop());
+        } catch (err) {
+          this.lastError = String(err && err.message ? err.message : err);
+          this.audioState = this.ctx ? this.ctx.state : 'error';
+          throw err;
+        } finally {
+          this._startLock = null;
         }
-        this._buildGraph();
-        if (this.ctx.state === 'suspended') await this.ctx.resume();
-        this.running = true;
-        this.rpm = this.engine.idleRpm;
-        this.targetRpm = this.rpm;
-        this.load = 0.18; // audible idle load
-        this.gear = 1;
-        this._lastT = this.ctx.currentTime;
-        this._applyVoice(true);
-        // Audible proof-of-life click then idle
-        this._startClick();
-        this.audioState = this.ctx.state;
-        this._tick = requestAnimationFrame(() => this._loop());
-      } catch (err) {
-        this.lastError = String(err && err.message ? err.message : err);
-        this.audioState = this.ctx ? this.ctx.state : 'error';
-        throw err;
-      }
+      })();
+      return this._startLock;
     }
 
     stop() {
@@ -233,7 +240,7 @@
       this.audioState = this.ctx ? this.ctx.state : 'stopped';
     }
 
-    setEngine(id) {
+    async setEngine(id) {
       if (!ENGINES[id]) return;
       const was = this.running;
       const demo = this.demoActive;
@@ -242,10 +249,12 @@
       this.rpm = ENGINES[id].idleRpm;
       this.targetRpm = this.rpm;
       this.gear = 1;
+      this.manualShift = false;
+      this.shiftHoldUntil = 0;
+      this._shifting = false;
       if (was) {
-        this.start().then(() => {
-          if (demo) this.playDemoDrive();
-        });
+        await this.start();
+        if (demo) this.playDemoDrive();
       }
     }
 
@@ -290,7 +299,13 @@
       if (this.demoActive) return;
       const e = this.engine;
       const prev = this.load;
-      this.load = clamp(amount, 0, 1);
+      const a = clamp(amount, 0, 1);
+      if (a <= 0.02) {
+        this.load = 0.18;
+        this.targetRpm = e.idleRpm;
+        return;
+      }
+      this.load = a;
       this.targetRpm = e.idleRpm + (e.redline - e.idleRpm) * Math.pow(this.load, 0.82);
       if (this.soundMode === 'sample' && this.load > 0.55 && this.load - prev > 0.12) {
         this._fireRevSample();
@@ -411,6 +426,11 @@
       this.demoActive = false;
       if (this._demoTimer) cancelAnimationFrame(this._demoTimer);
       this._demoTimer = null;
+      this._demoSpeed = 0;
+      if (this.running) {
+        this.load = 0.18;
+        this.targetRpm = this.engine.idleRpm;
+      }
     }
     get demoSpeed() {
       return this._demoSpeed || 0;

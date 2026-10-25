@@ -1,3 +1,8 @@
+## v7 Buttons-Fix
+
+Systematischer UI-Test (Playwright): Start/Stop, Demo-Toggle, Simulation ±, Gänge, Lautstärke, Motortyp, Klangquelle Sample/Synth, Gas-Halten.
+Fixes: UI-Loop starb nach Motor-/Sample-Wechsel; Sample blieb „Synth“ in der Anzeige; Demo ohne Stop; manuelle Gänge blockierten Simulation; Start-Lock; Touch/Pointer für Gas; SW-Cache v7.
+
 
 ## v5 Sound-Fix („kein Sound“)
 

@@ -1,4 +1,4 @@
-const CACHE = 'tesla-v8-sound-v6';
+const CACHE = 'tesla-v8-sound-v7';
 const ASSETS = [
   './',
   './index.html',
