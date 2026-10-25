@@ -1,5 +1,5 @@
 /**
- * Tesla V8 Sound – UI, GPS, optional DeviceMotion (original).
+ * Tesla V8 Sound – UI, GPS, optional DeviceMotion, Demo-Fahrt (original).
  */
 (function () {
   'use strict';
@@ -11,11 +11,11 @@
   let speedKmh = 0;
   let lastSpeed = 0;
   let lastSpeedT = 0;
-  let accelHint = null; // -1..1 from motion or derived
+  let accelHint = null;
   let motionEnabled = false;
   let simMode = false;
   let simSpeed = 0;
-  let lastPopNote = 0;
+  let uiRunning = false;
 
   const el = {
     start: $('#btn-start'),
@@ -35,7 +35,7 @@
     sim: $('#btn-sim'),
     simSlower: $('#sim-slower'),
     simFaster: $('#sim-faster'),
-    disclaimer: $('#disclaimer'),
+    demo: $('#btn-demo'),
   };
 
   function setStatus(msg) {
@@ -57,10 +57,14 @@
       el.start.disabled = true;
       el.stop.disabled = false;
       el.rev.disabled = false;
-      setStatus('Motor läuft – Lautstärke am Fahrzeug drehen.');
+      if (el.demo) el.demo.disabled = false;
+      setStatus('Motor läuft – Lautstärke am Fahrzeug drehen. Tipp: „Demo-Fahrt“ zum Probehören.');
       startGps();
       tryMotion();
-      loopUi();
+      if (!uiRunning) {
+        uiRunning = true;
+        loopUi();
+      }
     } catch (err) {
       setStatus('Audio blockiert – bitte einmal tippen und erneut starten.');
       console.error(err);
@@ -72,6 +76,7 @@
     el.start.disabled = false;
     el.stop.disabled = true;
     el.rev.disabled = true;
+    if (el.demo) el.demo.disabled = true;
     setStatus('Gestoppt.');
   }
 
@@ -84,15 +89,15 @@
     el.gps.textContent = 'GPS: warte auf Freigabe…';
     watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        const sp = (pos.coords.speed != null && pos.coords.speed >= 0)
-          ? pos.coords.speed * 3.6
-          : deriveSpeedFromPositions(pos);
-        if (!simMode) {
+        const sp =
+          pos.coords.speed != null && pos.coords.speed >= 0
+            ? pos.coords.speed * 3.6
+            : deriveSpeedFromPositions(pos);
+        if (!simMode && !engine.demoActive) {
           const now = performance.now();
           if (lastSpeedT && now - lastSpeedT > 80) {
-            const dv = (sp - lastSpeed) / ((now - lastSpeedT) / 1000); // km/h per s
-            // crude accel hint from GPS delta
-            accelHint = Math.max(-1, Math.min(1, dv / 25));
+            const dv = (sp - lastSpeed) / ((now - lastSpeedT) / 1000);
+            accelHint = Math.max(-1, Math.min(1, dv / 22));
           }
           lastSpeed = sp;
           lastSpeedT = now;
@@ -100,28 +105,22 @@
           engine.updateFromTelemetry(speedKmh, accelHint);
         }
         el.gps.textContent =
-          'GPS: aktiv (±' +
-          Math.round(pos.coords.accuracy || 0) +
-          ' m) · Latenz möglich';
+          'GPS: aktiv (±' + Math.round(pos.coords.accuracy || 0) + ' m) · etwas Latenz möglich';
       },
       (err) => {
-        el.gps.textContent = 'GPS: ' + (err.message || 'verweigert') + ' – Simulation nutzen';
+        el.gps.textContent = 'GPS: ' + (err.message || 'verweigert') + ' – Simulation/Demo nutzen';
       },
-      { enableHighAccuracy: true, maximumAge: 500, timeout: 10000 }
+      { enableHighAccuracy: true, maximumAge: 400, timeout: 10000 }
     );
   }
 
-  let prevLat = null;
-  let prevLon = null;
-  let prevT = null;
+  let prevLat = null, prevLon = null, prevT = null;
   function deriveSpeedFromPositions(pos) {
     const lat = pos.coords.latitude;
     const lon = pos.coords.longitude;
     const t = pos.timestamp;
     if (prevLat == null) {
-      prevLat = lat;
-      prevLon = lon;
-      prevT = t;
+      prevLat = lat; prevLon = lon; prevT = t;
       return speedKmh;
     }
     const dt = (t - prevT) / 1000;
@@ -135,59 +134,61 @@
         Math.cos((lat * Math.PI) / 180) *
         Math.sin(dLon / 2) ** 2;
     const d = 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    prevLat = lat;
-    prevLon = lon;
-    prevT = t;
+    prevLat = lat; prevLon = lon; prevT = t;
     return (d / dt) * 3.6;
   }
 
   function tryMotion() {
     el.motion.textContent =
-      'Bewegungssensor: optional (Tesla-Browser oft ohne Sensoren – Handy-Tipp)';
+      'Bewegungssensor: optional (Tesla-Browser oft ohne – gleiche Seite am Handy öffnen)';
     const handler = (ev) => {
-      // Prefer accelerationIncludingGravity longitudinal guess
       const a = ev.acceleration;
       const ag = ev.accelerationIncludingGravity;
       let forward = 0;
       if (a && a.y != null) forward = a.y;
-      else if (ag && ag.y != null) forward = ag.y; // rough
-      // Normalize ~ ±4 m/s² → ±1
+      else if (ag && ag.y != null) forward = ag.y;
       accelHint = Math.max(-1, Math.min(1, forward / 4));
       motionEnabled = true;
-      el.motion.textContent = 'Bewegungssensor: aktiv (Gas-Gefühl)';
-      if (!simMode) engine.updateFromTelemetry(speedKmh, accelHint);
+      el.motion.textContent = 'Bewegungssensor: aktiv (Gas-/Schub-Gefühl)';
+      if (!simMode && !engine.demoActive) {
+        engine.updateFromTelemetry(speedKmh, accelHint);
+      }
     };
 
-    if (typeof DeviceMotionEvent !== 'undefined' &&
-        typeof DeviceMotionEvent.requestPermission === 'function') {
-      // iOS – only when user taps; we expose a button path via start
+    if (
+      typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function'
+    ) {
       DeviceMotionEvent.requestPermission()
         .then((state) => {
-          if (state === 'granted') {
-            window.addEventListener('devicemotion', handler, true);
-          } else {
-            el.motion.textContent = 'Bewegungssensor: verweigert – GPS reicht';
-          }
+          if (state === 'granted') window.addEventListener('devicemotion', handler, true);
+          else el.motion.textContent = 'Bewegungssensor: verweigert – GPS reicht';
         })
         .catch(() => {
           el.motion.textContent = 'Bewegungssensor: nicht verfügbar';
         });
     } else if (window.DeviceMotionEvent) {
       window.addEventListener('devicemotion', handler, true);
-      // If no events arrive after a few seconds, keep tip visible
       setTimeout(() => {
         if (!motionEnabled) {
           el.motion.textContent =
-            'Bewegungssensor: keine Daten (im Tesla normal) – gleiche Seite am Handy öffnen für Gas-Gefühl';
+            'Bewegungssensor: keine Daten (im Tesla normal) – Handy für Gas-Gefühl';
         }
       }, 4000);
     }
   }
 
   function loopUi() {
-    if (!engine.running) return;
-    if (simMode) {
-      engine.updateFromTelemetry(simSpeed, accelHint != null ? accelHint : 0.35);
+    if (!engine.running) {
+      uiRunning = false;
+      return;
+    }
+    if (engine.demoActive) {
+      speedKmh = engine.demoSpeed;
+    } else if (simMode) {
+      // Simulate throttle from rising/falling sim speed
+      const hint = accelHint != null ? accelHint : 0.55;
+      engine.updateFromTelemetry(simSpeed, hint);
       speedKmh = simSpeed;
     }
     el.speed.textContent = Math.round(speedKmh);
@@ -196,7 +197,6 @@
     requestAnimationFrame(loopUi);
   }
 
-  // Controls
   el.start.addEventListener('click', startEngine);
   el.stop.addEventListener('click', stopEngine);
   el.vol.addEventListener('input', () => {
@@ -211,57 +211,73 @@
   el.up.addEventListener('click', () => engine.shiftUp());
   el.down.addEventListener('click', () => engine.shiftDown());
 
-  // Hold to rev (parked)
+  if (el.demo) {
+    el.demo.addEventListener('click', async () => {
+      if (!engine.running) await startEngine();
+      simMode = false;
+      el.sim.classList.remove('active');
+      el.sim.textContent = 'Simulation';
+      engine.playDemoDrive();
+      setStatus('Demo-Fahrt (~20 s): Leerlauf → Launch → Schalten → Lift-off → Kickdown → Stopp.');
+    });
+  }
+
   let revTimer = null;
   function revStart(ev) {
     ev.preventDefault();
-    if (!engine.running) return;
+    if (!engine.running || engine.demoActive) return;
     let amount = 0.2;
     revTimer = setInterval(() => {
       amount = Math.min(1, amount + 0.08);
       engine.setRev(amount);
-      if (!simMode) {
-        /* parked rev overrides telemetry briefly */
-      }
     }, 50);
   }
   function revEnd(ev) {
     ev.preventDefault();
     clearInterval(revTimer);
     revTimer = null;
-    if (engine.running) engine.setRev(0);
+    if (engine.running && !engine.demoActive) {
+      // overrun crackle on release
+      const was = engine.load;
+      engine.setRev(0);
+      if (was > 0.4) {
+        /* synthesizer detects load drop */
+      }
+    }
   }
   el.rev.addEventListener('pointerdown', revStart);
   el.rev.addEventListener('pointerup', revEnd);
   el.rev.addEventListener('pointerleave', revEnd);
   el.rev.addEventListener('pointercancel', revEnd);
 
-  // Simulation helpers (for testing without driving)
   el.sim.addEventListener('click', () => {
+    if (engine.demoActive) engine.stopDemo();
     simMode = !simMode;
     el.sim.classList.toggle('active', simMode);
     el.sim.textContent = simMode ? 'Simulation AN' : 'Simulation';
-    if (simMode) {
-      simSpeed = Math.max(simSpeed, 30);
-      setStatus('Simulationsmodus – Geschwindigkeit mit + / − ändern.');
-    } else {
-      setStatus('Simulation aus – GPS-Geschwindigkeit aktiv.');
-    }
+    setStatus(
+      simMode
+        ? 'Simulationsmodus – Geschwindigkeit mit + / − ändern.'
+        : 'Simulation aus – GPS-Geschwindigkeit aktiv.'
+    );
   });
   el.simFaster.addEventListener('click', () => {
+    if (engine.demoActive) engine.stopDemo();
     simMode = true;
     el.sim.classList.add('active');
     el.sim.textContent = 'Simulation AN';
     simSpeed = Math.min(250, simSpeed + 10);
+    accelHint = 0.8;
   });
   el.simSlower.addEventListener('click', () => {
+    if (engine.demoActive) engine.stopDemo();
     simMode = true;
     el.sim.classList.add('active');
     el.sim.textContent = 'Simulation AN';
     simSpeed = Math.max(0, simSpeed - 10);
+    accelHint = -0.5;
   });
 
-  // Keyboard (Tesla scroll wheel / keyboard may send keys)
   window.addEventListener('keydown', (ev) => {
     if (ev.repeat) return;
     switch (ev.key) {
@@ -277,25 +293,29 @@
         break;
       case ' ':
         ev.preventDefault();
-        if (engine.running) engine.setRev(0.85);
+        if (engine.running && !engine.demoActive) engine.setRev(0.9);
         break;
       case 's':
       case 'S':
         if (engine.running) stopEngine();
         else startEngine();
         break;
+      case 'd':
+      case 'D':
+        if (el.demo) el.demo.click();
+        break;
     }
   });
   window.addEventListener('keyup', (ev) => {
-    if (ev.key === ' ') engine.setRev(0);
+    if (ev.key === ' ' && engine.running && !engine.demoActive) engine.setRev(0);
   });
 
-  // Service worker (optional offline)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 
   fillEngines();
   engine.setVolume(Number(el.vol.value) / 100);
-  setStatus('Bereit – „Start“ tippen (Browser braucht eine Nutzeraktion für Audio).');
+  if (el.demo) el.demo.disabled = true;
+  setStatus('Bereit – „Start“ tippen, dann „Demo-Fahrt“ für den ~20-Sekunden-Hörtest.');
 })();

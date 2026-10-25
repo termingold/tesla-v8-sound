@@ -50,6 +50,22 @@ python3 -m http.server 8080
 
 Geolocation und Audio brauchen HTTPS (oder localhost).
 
+
+## Sound-Upgrade (prozedural)
+
+Charakter angelehnt an öffentlich beschriebene Demo-Muster (Leerlauf → Launch → Schalten → Lift-off/Crackle → Kickdown) – **ohne** Fremd-Samples oder -Code.
+
+Neu/verbessert:
+- Verbrennungs-Pulse mit Zylindergewichten (Cross-Plane-Lope)
+- Harmonische, die mit Drehzahl/Last wachsen
+- Getrennte Ansaug- und Auspuff-Rauschlagen (Last vs. Schubabschaltung)
+- Gangwechsel mit Drehzahleinbruch / Blip + optionale Crackles
+- Taste **Demo-Fahrt** (~20 s Hörprobe)
+
+### Ehrlicher Abstand zu TesRev
+
+TesRev wirkt dichter und „physischer“ (feinere Pulse, Auspuff-/Ansaug-Akustik, jahrelange Abstimmung). Unsere Version ist freier, originaler Web-Audio-Synthese-Code und klingt hörbar motorischer als die erste Iteration, bleibt aber klar hinter einer ausgereiften physikalischen Simulation.
+
 ## Technik
 
 - `js/engine.js` – prozedurale Synthese (Oszillatoren, Filter, Rauschen, Schalt-Blips)
