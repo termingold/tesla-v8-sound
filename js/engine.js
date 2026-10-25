@@ -468,7 +468,6 @@
       };
 
       this._proc = proc;
-      this._proc = proc;
       // Dummy input keeps ScriptProcessor alive in some Chromium builds
       this._dummy = ctx.createGain();
       this._dummy.gain.value = 0;
