@@ -1,3 +1,7 @@
+## Öffentliche URL
+
+https://termingold.github.io/tesla-v8-sound/
+
 # Tesla V8 Sound (kostenlos)
 
 Selbstgebaute, **kostenlose** Web-App: prozeduraler V8-/Reihensechser-Motorsound im Tesla-Browser, gekoppelt an GPS-Geschwindigkeit (optional Handysensor).
@@ -8,7 +12,7 @@ Kein Account, kein Paywall, kein Tracking. Originalcode – keine Samples oder A
 
 1. Tesla online bringen (Premium Connectivity oder Handy-Hotspot).
 2. Auf dem Touchscreen: **Apps → Browser**.
-3. URL dieser Seite öffnen (GitHub Pages-Link, siehe unten).
+3. URL öffnen: **https://termingold.github.io/tesla-v8-sound/**
 4. Einmal auf den Bildschirm tippen (Audio-Freigabe), dann **Start**.
 5. Standort **erlauben**, damit die Geschwindigkeit folgt.
 6. Lautstärke am Fahrzeugregler einstellen – Verkehr muss hörbar bleiben.
