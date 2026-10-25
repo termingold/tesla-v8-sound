@@ -1,0 +1,230 @@
+:root {
+  --bg: #0b0d10;
+  --panel: #151a21;
+  --panel2: #1c2430;
+  --border: #2a3444;
+  --text: #e8eef7;
+  --muted: #8b9bb0;
+  --accent: #e11d48;
+  --accent2: #f97316;
+  --ok: #22c55e;
+  --warn: #eab308;
+  --touch: 64px;
+  --radius: 16px;
+  font-size: 18px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  min-height: 100%;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+body {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px 20px 40px;
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.tagline {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 4px 0 0;
+}
+
+.badge {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--ok);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.gauges {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.gauge {
+  background: linear-gradient(160deg, var(--panel2), var(--panel));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 12px;
+  text-align: center;
+}
+
+.gauge .value {
+  font-size: 2.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.gauge .unit {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin-top: 4px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.panel h2 {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.btn {
+  appearance: none;
+  border: none;
+  border-radius: 14px;
+  min-height: var(--touch);
+  min-width: var(--touch);
+  padding: 0 22px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  transition: transform 0.08s ease, background 0.15s;
+}
+
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: #be123c;
+  color: #fff;
+  flex: 1;
+  min-width: 140px;
+}
+
+.btn-danger {
+  background: #3f1d24;
+  border-color: #7f1d1d;
+  color: #fecaca;
+}
+
+.btn-gear {
+  font-size: 1.6rem;
+  width: 88px;
+  background: #1a2332;
+}
+
+.btn.active {
+  outline: 2px solid var(--accent2);
+  color: var(--accent2);
+}
+
+.btn-rev {
+  flex: 1;
+  background: linear-gradient(180deg, #334155, #1e293b);
+  min-height: 72px;
+}
+
+label.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 180px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+select, input[type="range"] {
+  width: 100%;
+  min-height: 48px;
+  font-size: 1.1rem;
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+
+input[type="range"] {
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.status {
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.status strong { color: var(--text); }
+
+.notice {
+  background: #1a1508;
+  border: 1px solid #854d0e;
+  color: #fde68a;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  margin-top: 8px;
+}
+
+.notice.legal {
+  background: #0f1a14;
+  border-color: #166534;
+  color: #bbf7d0;
+}
+
+footer {
+  margin-top: 24px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 700px) {
+  .gauges { grid-template-columns: 1fr; }
+  .gauge .value { font-size: 2.2rem; }
+}

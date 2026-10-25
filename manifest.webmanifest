@@ -1,0 +1,10 @@
+{
+  "name": "Tesla V8 Sound",
+  "short_name": "V8 Sound",
+  "description": "Prozeduraler V8-Motorsound für den Tesla-Browser",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "lang": "de"
+}
