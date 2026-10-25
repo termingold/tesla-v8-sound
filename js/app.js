@@ -1,6 +1,6 @@
 /**
  * Tesla V8 Sound – UI, GPS, optional DeviceMotion, Demo-Fahrt (original).
- * v7: robuste Button-Zustände, UI-Loop überlebt Mode-/Motor-Wechsel.
+ * v8: User-V8-Sample Standard + Schalt-Drehzahl wie Aufnahme.
  */
 (function () {
   'use strict';
@@ -319,12 +319,12 @@
     el.soundMode.addEventListener('change', async () => {
       const mode = el.soundMode.value;
       try {
-        if (mode === 'sample') setStatus('Lade Freesound-Samples (CC-BY/CC0)…');
+        if (mode === 'sample') setStatus('Lade User-V8-Sample…');
         await engine.setSoundMode(mode);
         await afterEngineRebuild(
           mode === 'sample'
-            ? 'Sample-Modus: Lumamorph Idle (CC-BY) + Henaway Rev (CC0).'
-            : 'Synthese-Modus (Original, keine Fremd-Samples).'
+            ? 'Sample-Modus: dein V8-Referenzsound (Pitch folgt Drehzahl/Schaltung).'
+            : 'Synthese-Modus (Original, keine Samples).'
         );
       } catch (err) {
         setStatus(
@@ -421,9 +421,11 @@
     el.sim.classList.toggle('active', simMode);
     el.sim.textContent = simMode ? 'Simulation AN' : 'Simulation';
     if (simMode) {
-      // Auto-Gang wieder erlauben (manuelle Schaltung nicht blockieren)
+      // Auto-Gang wieder erlauben; Schalt-Freeze lösen damit RPM nicht am Idle klebt
       engine.manualShift = false;
       engine.shiftHoldUntil = 0;
+      engine._shifting = false;
+      engine._shiftFreezeUntil = 0;
       speedKmh = simSpeed;
       if (engine.running && !revHolding) {
         engine.updateFromTelemetry(simSpeed, accelHint != null ? accelHint : 0.55);
@@ -493,14 +495,14 @@
   });
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=7').catch(() => {});
+    navigator.serviceWorker.register('./sw.js?v=8').catch(() => {});
   }
 
   fillEngines();
-  if (el.soundMode) el.soundMode.value = engine.soundMode || 'synth';
+  if (el.soundMode) el.soundMode.value = engine.soundMode || 'sample';
   engine.setVolume(Number(el.vol.value) / 100);
   syncTransportButtons();
   setStatus(
-    'Bereit v7 – alle Buttons nach Start nutzbar. Hard-Reload falls alt gecacht.'
+    'Bereit v8 – User-V8-Sample Standard. Schalten senkt/hebt Drehzahl. Hard-Reload bei Cache.'
   );
 })();

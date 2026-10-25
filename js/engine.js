@@ -1,6 +1,6 @@
 /**
- * Pulse-driven V8 (original) — BufferSource impulse loop + oscillators.
- * Optional sample mode: CC-BY idle (Lumamorph) + CC0 rev (Henaway).
+ * Pulse-driven V8 — BufferSource impulse loop + oscillators.
+ * Sample mode: user-provided V8 drive clip (primary) + optional CC0 rev one-shot.
  * No ScriptProcessor (silent/broken on some Tesla/Chromium builds).
  * No continuous jet noise.
  */
@@ -12,14 +12,17 @@
       id: 'v8-cross',
       nameDe: 'V8 Cross-Plane',
       cylinders: 8,
-      idleRpm: 700,
-      redline: 6500,
+      idleRpm: 780,
+      redline: 5200,
       gears: 6,
       cylWeights: [1.0, 0.42, 0.95, 0.38, 1.05, 0.4, 0.9, 0.45],
       fireFrac: [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875],
       toneBright: 0.4,
       rumble: 1.0,
       crackle: 0.8,
+      // Matching user clip: upshifts ~3500–3800 under pull
+      shiftRpmHigh: 3800,
+      shiftRpmLow: 3000,
     },
     'v8-flat': {
       id: 'v8-flat',
@@ -33,6 +36,8 @@
       toneBright: 0.75,
       rumble: 0.35,
       crackle: 0.65,
+      shiftRpmHigh: 7200,
+      shiftRpmLow: 5500,
     },
     'i6-na': {
       id: 'i6-na',
@@ -46,10 +51,13 @@
       toneBright: 0.55,
       rumble: 0.5,
       crackle: 0.4,
+      shiftRpmHigh: 6200,
+      shiftRpmLow: 4800,
     },
   };
 
-  const GEAR_RATIOS = [0, 3.6, 2.25, 1.55, 1.18, 0.92, 0.74, 0.62];
+  // Ratios chosen so 1→2 drop ≈ 0.55 (clip: ~3600→1950)
+  const GEAR_RATIOS = [0, 3.9, 2.15, 1.48, 1.12, 0.88, 0.7, 0.58];
   const FINAL_DRIVE = 3.73;
   const WHEEL_RADIUS = 0.35;
 
@@ -57,17 +65,23 @@
     return Math.max(a, Math.min(b, v));
   }
 
+  function gearDropFactor(fromGear, toGear) {
+    const a = GEAR_RATIOS[fromGear] || 1;
+    const b = GEAR_RATIOS[toGear] || 1;
+    if (a <= 0) return 1;
+    return clamp(b / a, 0.45, 1.55);
+  }
+
   /** One 4-stroke cycle of uneven combustion pulses (procedural, no samples). */
   function makePulseCycleBuffer(ctx, engine) {
     const idle = engine.idleRpm;
-    // Duration of two crank revolutions at idle (= full firing order once)
-    const dur = 120 / idle; // seconds
+    const dur = 120 / idle;
     const sr = ctx.sampleRate;
     const n = Math.max(2048, Math.floor(sr * dur));
     const buf = ctx.createBuffer(1, n, sr);
     const d = buf.getChannelData(0);
     const cyl = engine.cylinders;
-    const decaySamples = Math.floor(sr * 0.012); // ~12 ms pulse tail
+    const decaySamples = Math.floor(sr * 0.012);
 
     for (let c = 0; c < cyl; c++) {
       const start = Math.floor((engine.fireFrac[c] % 1) * n);
@@ -75,8 +89,7 @@
       for (let i = 0; i < decaySamples; i++) {
         const idx = (start + i) % n;
         const t = i / sr;
-        const env = Math.exp(-t * 180) - Math.exp(-t * 900); // thumpy click
-        // Low-ish tonal click (not broadband hiss)
+        const env = Math.exp(-t * 180) - Math.exp(-t * 900);
         const tone =
           Math.sin(2 * Math.PI * 90 * t) * 0.7 +
           Math.sin(2 * Math.PI * 180 * t) * 0.35 +
@@ -84,7 +97,6 @@
         d[idx] += amp * env * tone;
       }
     }
-    // Normalize
     let peak = 0.001;
     for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(d[i]));
     const norm = 0.95 / peak;
@@ -108,9 +120,9 @@
       this.ctx = null;
       this.running = false;
       this.engineId = 'v8-cross';
-      this.soundMode = 'synth'; // 'synth' | 'sample'
-      this.rpm = 700;
-      this.targetRpm = 700;
+      this.soundMode = 'sample'; // default: user V8 sample
+      this.rpm = 780;
+      this.targetRpm = 780;
       this.load = 0.14;
       this.volume = 0.7;
       this.gear = 1;
@@ -123,14 +135,17 @@
       this._lastT = 0;
       this._prevLoad = 0.2;
       this._shifting = false;
+      this._shiftFreezeUntil = 0;
       this.lastError = null;
       this.audioState = 'idle';
       this._sampleIdleBuf = null;
       this._sampleRevBuf = null;
       this._samplesLoading = null;
       this._lastRevShot = 0;
-      this._sampleBaseRpm = 750; // approx recorded idle of Lumamorph clip
+      // Home RPM of user_v8_drive.ogg (mid-pull character from analysis)
+      this._sampleBaseRpm = 2100;
       this._startLock = null;
+      this._sampleReady = false;
     }
 
     get engine() {
@@ -157,7 +172,10 @@
     }
 
     async loadSamples() {
-      if (this._sampleIdleBuf && this._sampleRevBuf) return true;
+      if (this._sampleIdleBuf) {
+        this._sampleReady = true;
+        return true;
+      }
       if (this._samplesLoading) return this._samplesLoading;
       this._samplesLoading = (async () => {
         await this.ensureContext();
@@ -168,11 +186,19 @@
           const arr = await res.arrayBuffer();
           return await this.ctx.decodeAudioData(arr.slice(0));
         };
-        this._sampleIdleBuf = await loadOne('samples/lumamorph_v8_idle.ogg');
-        this._sampleRevBuf = await loadOne('samples/henaway_v8_rev.ogg');
+        // Primary: user-provided V8 drive clip
+        this._sampleIdleBuf = await loadOne('samples/user_v8_drive.ogg');
+        // Optional rev one-shot (CC0); ignore failure
+        try {
+          this._sampleRevBuf = await loadOne('samples/henaway_v8_rev.ogg');
+        } catch (_) {
+          this._sampleRevBuf = null;
+        }
+        this._sampleReady = true;
         return true;
       })().catch((err) => {
         this._samplesLoading = null;
+        this._sampleReady = false;
         this.lastError = String(err && err.message ? err.message : err);
         throw err;
       });
@@ -185,7 +211,6 @@
         if (!AC) throw new Error('Web Audio API fehlt in diesem Browser');
         this.ctx = new AC();
       }
-      // Critical: unlock on user gesture
       if (this.ctx.state === 'suspended') {
         await this.ctx.resume();
       }
@@ -200,7 +225,15 @@
         try {
           await this.ensureContext();
           if (this.soundMode === 'sample') {
-            await this.loadSamples();
+            try {
+              await this.loadSamples();
+            } catch (err) {
+              // Fallback to synth if sample fails
+              this.soundMode = 'synth';
+              this.lastError =
+                'Sample-Laden fehlgeschlagen, Synth-Fallback: ' +
+                (err && err.message ? err.message : err);
+            }
           }
           if (this.ctx.state === 'suspended') await this.ctx.resume();
           if (this.running) {
@@ -252,6 +285,7 @@
       this.manualShift = false;
       this.shiftHoldUntil = 0;
       this._shifting = false;
+      this._shiftFreezeUntil = 0;
       if (was) {
         await this.start();
         if (demo) this.playDemoDrive();
@@ -276,6 +310,13 @@
       } else {
         load = speed < 2 ? 0.18 : clamp(0.28 + speed / 220, 0.22, 0.75);
       }
+      this.load = load;
+
+      // Hold audible RPM drop/rise during shift; don't overwrite immediately
+      if (this._shifting || now < this._shiftFreezeUntil) {
+        return;
+      }
+
       if (!this.manualShift || now > this.shiftHoldUntil) {
         this.manualShift = false;
         this._autoGear(speed, load, e);
@@ -289,9 +330,8 @@
       else rpm *= 1 + load * 0.05;
       if (load > 0.85 && rpm > e.redline * 0.98 && this.gear < this.maxGear) {
         this._doUpshift(true);
-        rpm = this.rpm * 0.75;
+        return;
       }
-      this.load = load;
       this.targetRpm = clamp(rpm, e.idleRpm * 0.9, e.redline * 1.02);
     }
 
@@ -320,14 +360,18 @@
     }
 
     _autoGear(speed, load, e) {
-      const shiftRpm = load > 0.7 ? e.redline * 0.9 : e.redline * (0.52 + load * 0.3);
-      const downRpm = e.idleRpm * 1.35;
+      const high = e.shiftRpmHigh || e.redline * 0.9;
+      const low = e.shiftRpmLow || e.redline * 0.55;
+      const shiftRpm = load > 0.7 ? high : low + (high - low) * clamp((load - 0.2) / 0.5, 0, 1);
+      const downRpm = e.idleRpm * 1.45;
       const wheelRpm =
         speed > 0.5 ? ((speed / 3.6) / (2 * Math.PI * WHEEL_RADIUS)) * 60 : 0;
       const rpmNow = wheelRpm * (GEAR_RATIOS[this.gear] || 1.5) * FINAL_DRIVE;
-      if (rpmNow > shiftRpm && this.gear < this.maxGear && load > 0.15) this._doUpshift(true);
-      else if (rpmNow < downRpm && this.gear > 1 && speed > 3) this._doDownshift(true);
-      else {
+      if (rpmNow > shiftRpm && this.gear < this.maxGear && load > 0.15) {
+        this._doUpshift(true);
+      } else if (rpmNow < downRpm && this.gear > 1 && speed > 3) {
+        this._doDownshift(true);
+      } else {
         let g = 1;
         const bands = [0, 18, 38, 58, 85, 115, 150, 200];
         for (let i = 1; i <= this.maxGear; i++) if (speed >= bands[i - 1]) g = i;
@@ -339,34 +383,48 @@
     }
 
     _doUpshift(auto) {
-      if (this.gear >= this.maxGear || this._shifting) return;
+      if (this.gear >= this.maxGear) return;
+      // Auto-shifts debounce; manual +/- always applies so buttons feel responsive
+      if (auto && this._shifting) return;
+      const from = this.gear;
       this._shifting = true;
       this.gear++;
+      const factor = gearDropFactor(from, this.gear);
       if (!auto) {
         this.manualShift = true;
         this.shiftHoldUntil = performance.now() + 2200;
       }
-      this.targetRpm = Math.max(this.engine.idleRpm, this.rpm * 0.66);
-      this.rpm *= 0.7;
-      setTimeout(() => {
+      // Audible RPM drop matching clip (~45% on 1→2)
+      const dropped = Math.max(this.engine.idleRpm, this.rpm * factor);
+      this.rpm = dropped;
+      this.targetRpm = dropped;
+      this._shiftFreezeUntil = performance.now() + (auto ? 220 : 280);
+      clearTimeout(this._shiftUnlockTimer);
+      this._shiftUnlockTimer = setTimeout(() => {
         this._shifting = false;
-      }, 160);
+      }, auto ? 160 : 90);
     }
 
     _doDownshift(auto) {
-      if (this.gear <= 1 || this._shifting) return;
+      if (this.gear <= 1) return;
+      if (auto && this._shifting) return;
+      const from = this.gear;
       this._shifting = true;
       this.gear--;
+      const factor = gearDropFactor(from, this.gear);
       if (!auto) {
         this.manualShift = true;
         this.shiftHoldUntil = performance.now() + 2200;
       }
-      this.targetRpm = Math.min(this.engine.redline * 0.94, this.rpm * 1.38);
-      this.rpm = Math.min(this.engine.redline * 0.95, this.rpm * 1.32);
+      const risen = Math.min(this.engine.redline * 0.94, this.rpm * factor);
+      this.rpm = risen;
+      this.targetRpm = risen;
       this._fireCrackle(3);
-      setTimeout(() => {
+      this._shiftFreezeUntil = performance.now() + (auto ? 200 : 260);
+      clearTimeout(this._shiftUnlockTimer);
+      this._shiftUnlockTimer = setTimeout(() => {
         this._shifting = false;
-      }, 200);
+      }, auto ? 160 : 90);
     }
 
     playDemoDrive() {
@@ -379,16 +437,16 @@
         { t: 5.0, rpm: e.idleRpm * 1.02, load: 0.22, gear: 1, speed: 0 },
         { t: 5.5, rpm: e.redline * 0.4, load: 0.9, gear: 1, speed: 0 },
         { t: 6.0, rpm: e.idleRpm, load: 0.15, gear: 1, speed: 0, crackle: true },
-        { t: 6.8, rpm: e.redline * 0.55, load: 1.0, gear: 1, speed: 30 },
-        { t: 8.0, rpm: e.redline * 0.92, load: 1.0, gear: 1, speed: 55 },
-        { t: 8.2, rpm: e.redline * 0.6, load: 0.95, gear: 2, speed: 60 },
-        { t: 9.5, rpm: e.redline * 0.9, load: 1.0, gear: 2, speed: 95 },
-        { t: 9.7, rpm: e.redline * 0.58, load: 0.95, gear: 3, speed: 100 },
-        { t: 11.0, rpm: e.redline * 0.85, load: 0.9, gear: 3, speed: 130 },
-        { t: 11.5, rpm: e.redline * 0.5, load: 0.05, gear: 3, speed: 125, crackle: true },
+        { t: 6.8, rpm: 2800, load: 1.0, gear: 1, speed: 30 },
+        { t: 8.0, rpm: 3600, load: 1.0, gear: 1, speed: 55 },
+        { t: 8.2, rpm: 2000, load: 0.95, gear: 2, speed: 60 },
+        { t: 9.5, rpm: 3500, load: 1.0, gear: 2, speed: 95 },
+        { t: 9.7, rpm: 2100, load: 0.95, gear: 3, speed: 100 },
+        { t: 11.0, rpm: 3400, load: 0.9, gear: 3, speed: 130 },
+        { t: 11.5, rpm: e.redline * 0.45, load: 0.05, gear: 3, speed: 125, crackle: true },
         { t: 13.0, rpm: e.idleRpm * 2, load: 0.12, gear: 2, speed: 40 },
-        { t: 14.0, rpm: e.redline * 0.88, load: 1.0, gear: 2, speed: 70 },
-        { t: 16.0, rpm: e.redline * 0.65, load: 0.6, gear: 3, speed: 110 },
+        { t: 14.0, rpm: 3600, load: 1.0, gear: 2, speed: 70 },
+        { t: 16.0, rpm: 2600, load: 0.6, gear: 3, speed: 110 },
         { t: 17.5, rpm: e.idleRpm, load: 0.18, gear: 1, speed: 0, crackle: true },
         { t: 20.0, rpm: e.idleRpm, load: 0.18, gear: 1, speed: 0, end: true },
       ];
@@ -507,6 +565,7 @@
       if (this.soundMode === 'sample' && this._sampleIdleBuf) {
         this._buildSampleGraph(ctx);
       } else {
+        this.soundMode = this.soundMode === 'sample' && !this._sampleIdleBuf ? 'synth' : this.soundMode;
         this._buildSynthGraph(ctx, e);
       }
     }
@@ -546,23 +605,30 @@
 
     _buildSampleGraph(ctx) {
       this._pulseGain = ctx.createGain();
-      this._pulseGain.gain.value = 0.85;
+      this._pulseGain.gain.value = 0.9;
       this._sampleGain = ctx.createGain();
-      this._sampleGain.gain.value = 0.9;
+      this._sampleGain.gain.value = 1.0;
 
       this._pulse = ctx.createBufferSource();
       this._pulse.buffer = this._sampleIdleBuf;
       this._pulse.loop = true;
-      this._pulse.playbackRate.value = 1;
+      // Soft loop edges when supported
+      try {
+        const n = this._sampleIdleBuf.length;
+        const sr = this._sampleIdleBuf.sampleRate;
+        this._pulse.loopStart = 0.05;
+        this._pulse.loopEnd = Math.max(0.5, n / sr - 0.05);
+      } catch (_) {}
+      const startRate = clamp(this.rpm / this._sampleBaseRpm, 0.45, 2.2);
+      this._pulse.playbackRate.value = startRate;
       this._pulse.connect(this._sampleGain);
       this._sampleGain.connect(this._pulseGain);
       this._pulseGain.connect(this._thump);
 
-      // Light sub under sample for cabin thump
       this._sub = ctx.createOscillator();
       this._sub.type = 'sine';
       this._subGain = ctx.createGain();
-      this._subGain.gain.value = 0.06;
+      this._subGain.gain.value = 0.05;
       this._sub.connect(this._subGain);
       this._subGain.connect(this._lp);
 
@@ -577,10 +643,10 @@
       this._lastRevShot = now;
       const src = this.ctx.createBufferSource();
       src.buffer = this._sampleRevBuf;
-      const rate = clamp(this.rpm / this._sampleBaseRpm, 0.85, 1.6);
+      const rate = clamp(this.rpm / this._sampleBaseRpm, 0.75, 1.7);
       src.playbackRate.value = rate;
       const g = this.ctx.createGain();
-      g.gain.value = 0.35 + this.load * 0.45;
+      g.gain.value = 0.28 + this.load * 0.4;
       src.connect(g);
       g.connect(this._master);
       src.start(now);
@@ -612,19 +678,20 @@
       if (!this.ctx || !this._pulse) return;
       const e = this.engine;
       const t = this.ctx.currentTime;
-      const tc = immediate ? 0.01 : 0.05;
+      const tc = immediate ? 0.01 : 0.045;
       const rpmN = clamp((this.rpm - e.idleRpm) / (e.redline - e.idleRpm), 0, 1.05);
 
       if (this.soundMode === 'sample') {
-        const rate = clamp(this.rpm / this._sampleBaseRpm, 0.7, 2.4);
-        this._pulse.playbackRate.setTargetAtTime(rate, t, tc);
-        const amp =
-          (0.55 + this.load * 0.45) * (this.load < 0.12 ? 0.85 : 1);
+        // Pitch follows RPM; freeze slightly snappier during shift for audible drop
+        const rateTc = this._shifting ? 0.02 : tc;
+        const rate = clamp(this.rpm / this._sampleBaseRpm, 0.45, 2.2);
+        this._pulse.playbackRate.setTargetAtTime(rate, t, rateTc);
+        const amp = (0.6 + this.load * 0.45) * (this.load < 0.12 ? 0.88 : 1);
         this._pulseGain.gain.setTargetAtTime(amp, t, tc);
         if (this._sub && this._subGain) {
           this._sub.frequency.setTargetAtTime(Math.max(35, this.rpm / 60), t, tc);
           this._subGain.gain.setTargetAtTime(
-            (0.04 + this.load * 0.08) * (1 - rpmN * 0.35),
+            (0.03 + this.load * 0.07) * (1 - rpmN * 0.35),
             t,
             tc
           );
@@ -636,7 +703,6 @@
         return;
       }
 
-      // Synth: playbackRate 1.0 = idle cycle; scales linearly with RPM
       const rate = clamp(this.rpm / e.idleRpm, 0.5, e.redline / e.idleRpm);
       this._pulse.playbackRate.setTargetAtTime(rate, t, tc);
 
@@ -681,7 +747,8 @@
       }
       this.audioState = this.ctx.state;
 
-      const lag = this.load > 0.5 ? 0.05 : 0.11;
+      // Snappier RPM tracking during/after shift so drop is felt
+      const lag = this._shifting ? 0.025 : this.load > 0.5 ? 0.05 : 0.11;
       this.rpm += (this.targetRpm - this.rpm) * Math.min(1, dt / lag);
       this.rpm = clamp(this.rpm, this.engine.idleRpm * 0.85, this.engine.redline * 1.05);
 

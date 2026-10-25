@@ -1,4 +1,4 @@
-const CACHE = 'tesla-v8-sound-v7';
+const CACHE = 'tesla-v8-sound-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -6,8 +6,9 @@ const ASSETS = [
   './js/engine.js',
   './js/app.js',
   './manifest.webmanifest',
-  './samples/lumamorph_v8_idle.ogg',
+  './samples/user_v8_drive.ogg',
   './samples/henaway_v8_rev.ogg',
+  './samples/lumamorph_v8_idle.ogg',
 ];
 
 self.addEventListener('install', (e) => {
@@ -31,7 +32,6 @@ self.addEventListener('fetch', (e) => {
     url.pathname.endsWith('.html') ||
     url.pathname.endsWith('/');
   if (isCode) {
-    // Network-first so fixes deploy immediately
     e.respondWith(
       fetch(e.request)
         .then((res) => {

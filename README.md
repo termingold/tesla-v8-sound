@@ -1,3 +1,18 @@
+## v8 User-V8-Sample + Schalt-Drehzahl
+
+Primärer Klang: **vom Nutzer gelieferter V8-Referenzclip** (`samples/user_v8_drive.ogg`).
+Sample-Modus ist Standard; Synthese bleibt Fallback.
+
+Aus der Aufnahme abgeleitet:
+- Idle ≈ **780 U/min**
+- Hochschalten typisch bei ≈ **3500–3800 U/min**
+- Deutlicher Drehzahlabfall beim Hochschalten (z. B. ~3600 → ~1950)
+- Pitch-Basis (`_sampleBaseRpm`) ≈ **2100**
+
+Physik: Gangwechsel ändern RPM/Pitch hörbar (Freeze kurz beim Schalten);
+Simulation löst manuellen Schalt-Hold, damit Drehzahl nicht am Idle klebt.
+Service-Worker-Cache **v8** — Hard-Reload nach Deploy.
+
 ## v7 Buttons-Fix
 
 Systematischer UI-Test (Playwright): Start/Stop, Demo-Toggle, Simulation ±, Gänge, Lautstärke, Motortyp, Klangquelle Sample/Synth, Gas-Halten.
@@ -20,7 +35,7 @@ Demo beginnt mit ~5 s Idle-Lope zum Gegenprüfen.
 
 ## v6 Sample-Modus (optional)
 
-Neben der **Synthese** (Standard) gibt es optional **Sample V8**:
+Ab v8 ist **Sample V8 (User-Sound)** Standard; Synthese optional:
 - Idle-Loop: [Lumamorph – Eight-cylinder engine idling](https://freesound.org/people/Lumamorph/sounds/636066/) (**CC BY 4.0**)
 - Rev-One-Shot: [Henaway – Big Block V8 Rev](https://freesound.org/people/Henaway/sounds/127980/) (**CC0**)
 

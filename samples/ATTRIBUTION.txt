@@ -1,23 +1,30 @@
 Tesla V8 Sound – Sample-Quellen / Attribution
 ==============================================
 
-1) Eight-cylinder engine idling (American)
-   Author: Lumamorph (Freesound)
-   URL:    https://freesound.org/people/Lumamorph/sounds/636066/
-   License: Creative Commons Attribution 4.0 (CC BY 4.0)
-            https://creativecommons.org/licenses/by/4.0/
-   File:   lumamorph_v8_idle.ogg
-   Note:   Web-Preview (HQ) von Freesound, konvertiert nach Ogg Vorbis.
-           Enthält: sauberer V8-Leerlauf-Loop (amerikanisch), ~25 s.
+1) User-provided V8 reference (primary sample, default)
+   Author: User (provided to this app)
+   License: User-provided sample — for use in this cabin-sound app
+   File:   user_v8_drive.ogg (from user_v8_ref.mp3)
+   Note:   Continuous V8 drive clip (~25 s, 48 kHz). Used as looped
+           buffer; playbackRate follows engine RPM. Shift points in
+           the recording (~3500–3800 rpm upshifts with audible RPM drop)
+           informed gear/RPM physics. Not a YouTube rip.
 
-2) Big Block V8 Rev
+2) Big Block V8 Rev (optional one-shot on tip-in)
    Author: Henaway (Freesound)
    URL:    https://freesound.org/people/Henaway/sounds/127980/
    License: Creative Commons Zero (CC0 1.0) – Public Domain Dedication
             https://creativecommons.org/publicdomain/zero/1.0/
    File:   henaway_v8_rev.ogg
-   Note:   Web-Preview (HQ), konvertiert nach Ogg Vorbis.
-           Enthält: kurzer Ford-460-Big-Block-Rev (~3,7 s), One-Shot.
+   Note:   Optional overlay; primary cabin loop is the user sample.
 
-Keine YouTube-Rips. Keine CC-BY-NC-Samples.
-Synthese-Modus bleibt Standard und nutzt keine Fremd-Samples.
+3) Eight-cylinder engine idling (legacy, kept for offline cache)
+   Author: Lumamorph (Freesound)
+   URL:    https://freesound.org/people/Lumamorph/sounds/636066/
+   License: Creative Commons Attribution 4.0 (CC BY 4.0)
+            https://creativecommons.org/licenses/by/4.0/
+   File:   lumamorph_v8_idle.ogg
+   Note:   No longer the default sample path (v8+).
+
+Keine YouTube-Rips. Sample-Modus ist Standard (User-Sound);
+Synthese bleibt Fallback wenn Samples fehlen.
