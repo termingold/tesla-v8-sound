@@ -218,7 +218,7 @@
       el.sim.classList.remove('active');
       el.sim.textContent = 'Simulation';
       engine.playDemoDrive();
-      setStatus('Demo-Fahrt (~22 s): Leerlauf → Launch → Schalten → Lift-off → Kickdown → Stopp.');
+      setStatus('Demo: zuerst ~5 s Idle-Lope (V8-Chugs) – kein Flugzeug. Dann Launch/Crackles.');
     });
   }
 
@@ -317,5 +317,5 @@
   fillEngines();
   engine.setVolume(Number(el.vol.value) / 100);
   if (el.demo) el.demo.disabled = true;
-  setStatus('Bereit – „Start“ tippen, dann „Demo-Fahrt“ für den ~20-Sekunden-Hörtest.');
+  setStatus('Bereit – Hard-Reload, dann Start → Demo-Fahrt. Idle muss nach V8 klingen, nicht nach Turbine.');
 })();

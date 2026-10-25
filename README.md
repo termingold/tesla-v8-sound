@@ -1,3 +1,10 @@
+
+## Anti-Flugzeug-Fix (v4)
+
+Feedback: „hört sich an wie ein Flugzeug“. Ursache: zu viel **Dauerrauschen** (Whoosh).
+Jetzt: **pulsgetriebene** Verbrennungs-Impulse (ScriptProcessor-Impulszug), praktisch kein kontinuierliches Exhaust/Intake-Rauschen.
+Demo beginnt mit ~5 s Idle-Lope zum Gegenprüfen.
+
 ## Öffentliche URL
 
 https://termingold.github.io/tesla-v8-sound/
