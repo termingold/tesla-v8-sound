@@ -51,20 +51,41 @@ python3 -m http.server 8080
 Geolocation und Audio brauchen HTTPS (oder localhost).
 
 
+
+## YouTube als Klang-Vorbild (nur Charakterisierung)
+
+Wir haben **keinen** YouTube-Ton heruntergeladen, gerippt oder eingebettet — das wäre urheberrechtlich unzulässig.
+Stattdessen öffentliche Clips als **Hörreferenz** genutzt und unseren eigenen Web-Audio-Synthesizer darauf abgestimmt:
+
+| Refernz | URL | Hör-Charakter (Stichworte) |
+|--------|-----|----------------------------|
+| Mustang GT 5.0 Cold Start / Active Exhaust | https://www.youtube.com/watch?v=Fhhvj4Usz_Y | Cold Start, uneven idle burble, exhaust modes |
+| Mustang GT 5.0 Exhaust + Acceleration | https://www.youtube.com/watch?v=-UG5YrWDKuY | Deep rumble → rising growl under load |
+| C8 Corvette mic’d engine/exhaust | https://www.youtube.com/watch?v=jeOFpFCnBUM | LT2 small-block note, cabin vs tip |
+| Hellcat / loud V8 exhaust | https://www.youtube.com/watch?v=I-CTCooJR-I | Aggressive volume, idle presence |
+| AMG V8 pops/crackles | https://www.youtube.com/watch?v=ZRgyuYLYgpE | Overrun pops & bangs on lift-off / downshift |
+
+**Primärziel:** amerikanischer Cross-Plane-Muscle-V8 (Coyote/LT2-Stil): starker Leerlauf-Lope, tiefer Brustton, Midrange-„Bark“ unter Last, deutliche Crackles beim Gaswegnehmen.
+
+Zusätzliche Text-Referenz (kein YouTube): [getcarsounds.com Mustang GT](https://getcarsounds.com/sounds/ford-mustang-gt/) — erklärt Cross-Plane-Burble und ~67 Hz bei 1000 rpm.
+
+Keine Freesound-Samples eingebunden (Lizenz/Qualität unklar für saubere Loops) — reine Synthese.
+
 ## Sound-Upgrade (prozedural)
 
 Charakter angelehnt an öffentlich beschriebene Demo-Muster (Leerlauf → Launch → Schalten → Lift-off/Crackle → Kickdown) – **ohne** Fremd-Samples oder -Code.
 
-Neu/verbessert:
-- Verbrennungs-Pulse mit Zylindergewichten (Cross-Plane-Lope)
-- Harmonische, die mit Drehzahl/Last wachsen
-- Getrennte Ansaug- und Auspuff-Rauschlagen (Last vs. Schubabschaltung)
-- Gangwechsel mit Drehzahleinbruch / Blip + optionale Crackles
-- Taste **Demo-Fahrt** (~20 s Hörprobe)
+Neu/verbessert (Muscle-Retune):
+- Stärkerer Cross-Plane-**Lope** / Burble im Leerlauf (Coyote-Charakter)
+- Dynamischer Midrange-**Bark** unter Last
+- Tieferer Sub/Brustton, aggressivere Auspuff-Lage
+- Hellcat/AMG-angelehnte **Overrun-Crackles**
+- **Demo-Fahrt ~22 s**: langer Idle → Blip → Launch → Lift-off-Crackles → Kickdown
 
-### Ehrlicher Abstand zu TesRev
+### Ehrlicher Abstand zu TesRev / YouTube
 
-TesRev wirkt dichter und „physischer“ (feinere Pulse, Auspuff-/Ansaug-Akustik, jahrelange Abstimmung). Unsere Version ist freier, originaler Web-Audio-Synthese-Code und klingt hörbar motorischer als die erste Iteration, bleibt aber klar hinter einer ausgereiften physikalischen Simulation.
+TesRev und echte YouTube-Aufnahmen klingen dichter und „physischer“. Unsere App ist freie Original-Synthese: sie zielt auf denselben *Charakter* (Lope, Bark, Crackle), kann aber keine Aufnahme ersetzen und enthält **kein** YouTube-Audio.
+
 
 ## Technik
 

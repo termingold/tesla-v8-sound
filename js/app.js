@@ -218,7 +218,7 @@
       el.sim.classList.remove('active');
       el.sim.textContent = 'Simulation';
       engine.playDemoDrive();
-      setStatus('Demo-Fahrt (~20 s): Leerlauf → Launch → Schalten → Lift-off → Kickdown → Stopp.');
+      setStatus('Demo-Fahrt (~22 s): Leerlauf → Launch → Schalten → Lift-off → Kickdown → Stopp.');
     });
   }
 
