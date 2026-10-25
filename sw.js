@@ -1,4 +1,4 @@
-const CACHE = 'tesla-v8-sound-v5';
+const CACHE = 'tesla-v8-sound-v6';
 const ASSETS = [
   './',
   './index.html',
@@ -6,6 +6,8 @@ const ASSETS = [
   './js/engine.js',
   './js/app.js',
   './manifest.webmanifest',
+  './samples/lumamorph_v8_idle.ogg',
+  './samples/henaway_v8_rev.ogg',
 ];
 
 self.addEventListener('install', (e) => {

@@ -7,13 +7,13 @@
   <meta name="description" content="Kostenloser, prozeduraler V8-Motorsound für den Tesla-Browser – ohne Account, ohne Paywall." />
   <link rel="manifest" href="manifest.webmanifest" />
   <title>Tesla V8 Sound – kostenlos</title>
-  <link rel="stylesheet" href="css/style.css?v=5" />
+  <link rel="stylesheet" href="css/style.css?v=6" />
 </head>
 <body>
   <header>
     <div>
       <h1>Tesla V8 Sound</h1>
-      <p class="tagline">v5 Puls-V8 (BufferSource) · Model Y · kostenlos</p>
+      <p class="tagline">v6 Synth + Sample (CC-BY/CC0) · Model Y · kostenlos</p>
     </div>
     <span class="badge">Kein Account · Kein Tracking</span>
   </header>
@@ -45,6 +45,13 @@
       <label class="field">
         Motortyp
         <select id="engine-select" aria-label="Motortyp"></select>
+      </label>
+      <label class="field">
+        Klangquelle
+        <select id="sound-mode" aria-label="Klangquelle">
+          <option value="synth" selected>Synthese (Original)</option>
+          <option value="sample">Sample V8 (Freesound CC-BY/CC0)</option>
+        </select>
       </label>
       <label class="field">
         Lautstärke <span id="volume-label">60 %</span>
@@ -96,7 +103,7 @@
     </p>
   </footer>
 
-  <script src="js/engine.js?v=5"></script>
-  <script src="js/app.js?v=5"></script>
+  <script src="js/engine.js?v=6"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>

@@ -23,6 +23,7 @@
     vol: $('#volume'),
     volLabel: $('#volume-label'),
     engineSel: $('#engine-select'),
+    soundMode: $('#sound-mode'),
     speed: $('#speed-value'),
     rpm: $('#rpm-value'),
     gear: $('#gear-value'),
@@ -209,6 +210,8 @@
       el.audioDebug.textContent =
         'Audio: ' +
         (engine.audioState || '?') +
+        ' · ' +
+        (engine.soundMode === 'sample' ? 'Sample' : 'Synth') +
         ' · Vol ' +
         Math.round(engine.volume * 100) +
         '% · RPM ' +
@@ -228,6 +231,24 @@
     engine.setEngine(el.engineSel.value);
     setStatus('Motor: ' + el.engineSel.selectedOptions[0].textContent);
   });
+  if (el.soundMode) {
+    el.soundMode.addEventListener('change', async () => {
+      const mode = el.soundMode.value;
+      try {
+        if (mode === 'sample') setStatus('Lade Freesound-Samples (CC-BY/CC0)…');
+        await engine.setSoundMode(mode);
+        setStatus(
+          mode === 'sample'
+            ? 'Sample-Modus: Lumamorph Idle (CC-BY) + Henaway Rev (CC0). Attribution in samples/ATTRIBUTION.txt'
+            : 'Synthese-Modus (Original, keine Fremd-Samples).'
+        );
+      } catch (err) {
+        setStatus('Sample-Modus fehlgeschlagen: ' + (err.message || err) + ' – bleibe bei Synthese.');
+        el.soundMode.value = 'synth';
+        await engine.setSoundMode('synth');
+      }
+    });
+  }
   el.up.addEventListener('click', () => engine.shiftUp());
   el.down.addEventListener('click', () => engine.shiftDown());
 
@@ -337,5 +358,5 @@
   fillEngines();
   engine.setVolume(Number(el.vol.value) / 100);
   if (el.demo) el.demo.disabled = true;
-  setStatus('Bereit v5 – einmal Hard-Reload, dann START tippen. Idle sofort hörbar (kurzer Klick + Lope).');
+  setStatus('Bereit v6 – Synthese Standard; optional Sample V8 (CC-BY/CC0). Hard-Reload, dann START.');
 })();

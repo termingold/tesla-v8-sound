@@ -12,6 +12,31 @@ Feedback: „hört sich an wie ein Flugzeug“. Ursache: zu viel **Dauerrauschen
 Jetzt: **pulsgetriebene** Verbrennungs-Impulse (ScriptProcessor-Impulszug), praktisch kein kontinuierliches Exhaust/Intake-Rauschen.
 Demo beginnt mit ~5 s Idle-Lope zum Gegenprüfen.
 
+
+## v6 Sample-Modus (optional)
+
+Neben der **Synthese** (Standard) gibt es optional **Sample V8**:
+- Idle-Loop: [Lumamorph – Eight-cylinder engine idling](https://freesound.org/people/Lumamorph/sounds/636066/) (**CC BY 4.0**)
+- Rev-One-Shot: [Henaway – Big Block V8 Rev](https://freesound.org/people/Henaway/sounds/127980/) (**CC0**)
+
+Details: [`samples/ATTRIBUTION.txt`](samples/ATTRIBUTION.txt). In der UI unter **Klangquelle** umschalten.
+
+### Free-Sample-Suche (Ergebnis)
+
+| # | Name | Lizenz | URL | Inhalt | Qualität |
+|---|------|--------|-----|--------|----------|
+| 1 | Eight-cylinder engine idling (Lumamorph) | **CC BY 4.0** | https://freesound.org/people/Lumamorph/sounds/636066/ | Sauberer US-V8-Leerlauf, ~25 s Loop | **Beste Wahl** für Kabinen-Loop |
+| 2 | Big Block V8 Rev (Henaway) | **CC0** | https://freesound.org/people/Henaway/sounds/127980/ | Kurzer Ford-460-Rev (~3,7 s) | Gut als One-Shot, kein Loop |
+| 3 | Hot-Rod V8 start/drive (Ears68) | **CC0** | https://freesound.org/people/Ears68/sounds/146832/ | Start + Wegfahren + Festival-Ambience | Zu viel Ambiente für Kabine |
+| 4 | Rough Idle + Burnout (Ears68) | **CC0** | https://freesound.org/people/Ears68/sounds/213976/ | Idle + Burnout + Publikum/PA | Feldaufnahme, nicht loopbar |
+| 5 | Open Header V8 Parade (holderall) | **CC0** | https://freesound.org/people/holderall/sounds/432508/ | Idle/Rev mit Parade/Stimmen | CC0, aber unsauber für Loop |
+| 6 | Generic Car / Racing loops (OGA) | CC0 bzw. **CC-BY-SA 4.0** | https://opengameart.org/content/racing-car-engine-sound-loops | Generische Loops | Zu generisch / SA problematisch |
+
+**Empfehlung zum Einbetten:** Lumamorph (CC-BY mit Attribution) + Henaway (CC0) — so umgesetzt in v6.
+
+Pixabay/Mixkit: oft „frei nutzbar“, aber **kein klares CC0**; für öffentliches GitHub Pages bewusst nicht eingebettet. **Kein YouTube-Rip.** CC-BY-NC und CC-BY-SA vermieden.
+
+
 ## Öffentliche URL
 
 https://termingold.github.io/tesla-v8-sound/
@@ -83,7 +108,7 @@ Stattdessen öffentliche Clips als **Hörreferenz** genutzt und unseren eigenen 
 
 Zusätzliche Text-Referenz (kein YouTube): [getcarsounds.com Mustang GT](https://getcarsounds.com/sounds/ford-mustang-gt/) — erklärt Cross-Plane-Burble und ~67 Hz bei 1000 rpm.
 
-Keine Freesound-Samples eingebunden (Lizenz/Qualität unklar für saubere Loops) — reine Synthese.
+v5 war reine Synthese; ab v6 optional Freesound CC-BY/CC0 (siehe oben).
 
 ## Sound-Upgrade (prozedural)
 

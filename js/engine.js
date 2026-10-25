@@ -1,5 +1,6 @@
 /**
  * Pulse-driven V8 (original) — BufferSource impulse loop + oscillators.
+ * Optional sample mode: CC-BY idle (Lumamorph) + CC0 rev (Henaway).
  * No ScriptProcessor (silent/broken on some Tesla/Chromium builds).
  * No continuous jet noise.
  */
@@ -107,6 +108,7 @@
       this.ctx = null;
       this.running = false;
       this.engineId = 'v8-cross';
+      this.soundMode = 'synth'; // 'synth' | 'sample'
       this.rpm = 700;
       this.targetRpm = 700;
       this.load = 0.14;
@@ -123,6 +125,11 @@
       this._shifting = false;
       this.lastError = null;
       this.audioState = 'idle';
+      this._sampleIdleBuf = null;
+      this._sampleRevBuf = null;
+      this._samplesLoading = null;
+      this._lastRevShot = 0;
+      this._sampleBaseRpm = 750; // approx recorded idle of Lumamorph clip
     }
 
     get engine() {
@@ -133,6 +140,41 @@
     }
     listEngines() {
       return Object.values(ENGINES);
+    }
+
+    async setSoundMode(mode) {
+      const next = mode === 'sample' ? 'sample' : 'synth';
+      if (next === this.soundMode) return;
+      const was = this.running;
+      const demo = this.demoActive;
+      if (was) this.stop();
+      this.soundMode = next;
+      if (was) {
+        await this.start();
+        if (demo) this.playDemoDrive();
+      }
+    }
+
+    async loadSamples() {
+      if (this._sampleIdleBuf && this._sampleRevBuf) return true;
+      if (this._samplesLoading) return this._samplesLoading;
+      this._samplesLoading = (async () => {
+        await this.ensureContext();
+        const loadOne = async (url) => {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error('Sample fehlt: ' + url);
+          const arr = await res.arrayBuffer();
+          return await this.ctx.decodeAudioData(arr.slice(0));
+        };
+        this._sampleIdleBuf = await loadOne('samples/lumamorph_v8_idle.ogg');
+        this._sampleRevBuf = await loadOne('samples/henaway_v8_rev.ogg');
+        return true;
+      })().catch((err) => {
+        this._samplesLoading = null;
+        this.lastError = String(err && err.message ? err.message : err);
+        throw err;
+      });
+      return this._samplesLoading;
     }
 
     async ensureContext() {
@@ -153,6 +195,9 @@
       this.lastError = null;
       try {
         await this.ensureContext();
+        if (this.soundMode === 'sample') {
+          await this.loadSamples();
+        }
         // Second resume after graph build (some mobile browsers need it)
         if (this.ctx.state === 'suspended') await this.ctx.resume();
         if (this.running) {
@@ -244,8 +289,12 @@
     setRev(amount) {
       if (this.demoActive) return;
       const e = this.engine;
+      const prev = this.load;
       this.load = clamp(amount, 0, 1);
       this.targetRpm = e.idleRpm + (e.redline - e.idleRpm) * Math.pow(this.load, 0.82);
+      if (this.soundMode === 'sample' && this.load > 0.55 && this.load - prev > 0.12) {
+        this._fireRevSample();
+      }
     }
 
     shiftUp() {
@@ -405,12 +454,6 @@
       this._master = ctx.createGain();
       this._master.gain.value = this.volume;
 
-      this._pulseGain = ctx.createGain();
-      this._pulseGain.gain.value = 0.7;
-
-      this._bodyGain = ctx.createGain();
-      this._bodyGain.gain.value = 0.2;
-
       this._lp = ctx.createBiquadFilter();
       this._lp.type = 'lowpass';
       this._lp.frequency.value = 2200;
@@ -432,7 +475,28 @@
       this._bark.Q.value = 1.1;
       this._bark.gain.value = 3;
 
-      // Pulse loop — the main voice
+      this._thump.connect(this._bark);
+      this._bark.connect(this._lp);
+      this._lp.connect(this._hp);
+      this._hp.connect(this._master);
+      this._master.connect(ctx.destination);
+
+      this._crackleBuf = makeCrackleBuffer(ctx);
+      this._prevLoad = 0.2;
+
+      if (this.soundMode === 'sample' && this._sampleIdleBuf) {
+        this._buildSampleGraph(ctx);
+      } else {
+        this._buildSynthGraph(ctx, e);
+      }
+    }
+
+    _buildSynthGraph(ctx, e) {
+      this._pulseGain = ctx.createGain();
+      this._pulseGain.gain.value = 0.7;
+      this._bodyGain = ctx.createGain();
+      this._bodyGain.gain.value = 0.2;
+
       this._pulseBuf = makePulseCycleBuffer(ctx, e);
       this._pulse = ctx.createBufferSource();
       this._pulse.buffer = this._pulseBuf;
@@ -441,7 +505,6 @@
       this._pulse.connect(this._pulseGain);
       this._pulseGain.connect(this._thump);
 
-      // Body oscillators (quiet, follow RPM) — pulsed via gain, not noise
       this._body = ctx.createOscillator();
       this._body.type = 'sawtooth';
       this._body.frequency.value = 70;
@@ -453,20 +516,54 @@
       this._subGain.gain.value = 0.15;
       this._sub.connect(this._subGain);
 
-      this._thump.connect(this._bark);
-      this._bark.connect(this._lp);
       this._bodyGain.connect(this._lp);
       this._subGain.connect(this._lp);
-      this._lp.connect(this._hp);
-      this._hp.connect(this._master);
-      this._master.connect(ctx.destination);
-
-      this._crackleBuf = makeCrackleBuffer(ctx);
 
       this._pulse.start();
       this._body.start();
       this._sub.start();
-      this._prevLoad = 0.2;
+    }
+
+    _buildSampleGraph(ctx) {
+      this._pulseGain = ctx.createGain();
+      this._pulseGain.gain.value = 0.85;
+      this._sampleGain = ctx.createGain();
+      this._sampleGain.gain.value = 0.9;
+
+      this._pulse = ctx.createBufferSource();
+      this._pulse.buffer = this._sampleIdleBuf;
+      this._pulse.loop = true;
+      this._pulse.playbackRate.value = 1;
+      this._pulse.connect(this._sampleGain);
+      this._sampleGain.connect(this._pulseGain);
+      this._pulseGain.connect(this._thump);
+
+      // Light sub under sample for cabin thump
+      this._sub = ctx.createOscillator();
+      this._sub.type = 'sine';
+      this._subGain = ctx.createGain();
+      this._subGain.gain.value = 0.06;
+      this._sub.connect(this._subGain);
+      this._subGain.connect(this._lp);
+
+      this._pulse.start();
+      this._sub.start();
+    }
+
+    _fireRevSample() {
+      if (this.soundMode !== 'sample' || !this.ctx || !this._sampleRevBuf || !this._master) return;
+      const now = this.ctx.currentTime;
+      if (now - this._lastRevShot < 1.2) return;
+      this._lastRevShot = now;
+      const src = this.ctx.createBufferSource();
+      src.buffer = this._sampleRevBuf;
+      const rate = clamp(this.rpm / this._sampleBaseRpm, 0.85, 1.6);
+      src.playbackRate.value = rate;
+      const g = this.ctx.createGain();
+      g.gain.value = 0.35 + this.load * 0.45;
+      src.connect(g);
+      g.connect(this._master);
+      src.start(now);
     }
 
     _teardown() {
@@ -488,6 +585,7 @@
       this._pulse = null;
       this._body = null;
       this._sub = null;
+      this._sampleGain = null;
     }
 
     _applyVoice(immediate) {
@@ -497,31 +595,54 @@
       const tc = immediate ? 0.01 : 0.05;
       const rpmN = clamp((this.rpm - e.idleRpm) / (e.redline - e.idleRpm), 0, 1.05);
 
-      // playbackRate 1.0 = idle cycle; scales linearly with RPM
+      if (this.soundMode === 'sample') {
+        const rate = clamp(this.rpm / this._sampleBaseRpm, 0.7, 2.4);
+        this._pulse.playbackRate.setTargetAtTime(rate, t, tc);
+        const amp =
+          (0.55 + this.load * 0.45) * (this.load < 0.12 ? 0.85 : 1);
+        this._pulseGain.gain.setTargetAtTime(amp, t, tc);
+        if (this._sub && this._subGain) {
+          this._sub.frequency.setTargetAtTime(Math.max(35, this.rpm / 60), t, tc);
+          this._subGain.gain.setTargetAtTime(
+            (0.04 + this.load * 0.08) * (1 - rpmN * 0.35),
+            t,
+            tc
+          );
+        }
+        const cut = 1400 + rpmN * 3200 + this.load * 1000;
+        this._lp.frequency.setTargetAtTime(clamp(cut, 800, 7000), t, tc);
+        this._bark.gain.setTargetAtTime(1.5 + this.load * 4, t, tc);
+        this._thump.gain.setTargetAtTime(4 + (1 - rpmN) * 3, t, tc);
+        return;
+      }
+
+      // Synth: playbackRate 1.0 = idle cycle; scales linearly with RPM
       const rate = clamp(this.rpm / e.idleRpm, 0.5, e.redline / e.idleRpm);
       this._pulse.playbackRate.setTargetAtTime(rate, t, tc);
 
-      // Pulse loudness: always audible at idle; louder under load; quieter (not silent) on coast
       const pulseAmp =
         (0.45 + this.load * 0.5) * (0.85 + e.rumble * 0.2) * (this.load < 0.15 ? 0.75 : 1);
       this._pulseGain.gain.setTargetAtTime(pulseAmp, t, tc);
 
-      // Body follows firing-ish frequency
       const fireHz = (this.rpm / 60) * (e.cylinders / 2);
       const bodyF = Math.max(55, fireHz * 0.5);
-      this._body.frequency.setTargetAtTime(bodyF, t, tc);
-      this._bodyGain.gain.setTargetAtTime(
-        (0.04 + this.load * 0.14) * (0.5 + rpmN * 0.6) * e.toneBright,
-        t,
-        tc
-      );
+      if (this._body && this._bodyGain) {
+        this._body.frequency.setTargetAtTime(bodyF, t, tc);
+        this._bodyGain.gain.setTargetAtTime(
+          (0.04 + this.load * 0.14) * (0.5 + rpmN * 0.6) * e.toneBright,
+          t,
+          tc
+        );
+      }
 
-      this._sub.frequency.setTargetAtTime(Math.max(35, this.rpm / 60), t, tc);
-      this._subGain.gain.setTargetAtTime(
-        (0.08 + this.load * 0.1) * e.rumble * (1 - rpmN * 0.4),
-        t,
-        tc
-      );
+      if (this._sub && this._subGain) {
+        this._sub.frequency.setTargetAtTime(Math.max(35, this.rpm / 60), t, tc);
+        this._subGain.gain.setTargetAtTime(
+          (0.08 + this.load * 0.1) * e.rumble * (1 - rpmN * 0.4),
+          t,
+          tc
+        );
+      }
 
       const cut = 1000 + rpmN * 2800 + this.load * 1200 - (this.load < 0.2 ? 400 : 0);
       this._lp.frequency.setTargetAtTime(clamp(cut, 600, 6500), t, tc);
@@ -547,6 +668,9 @@
       const dLoad = this._prevLoad - this.load;
       if (dLoad > 0.28 && this.rpm > this.engine.idleRpm * 1.5) {
         this._fireCrackle(2 + Math.floor(dLoad * 6));
+      }
+      if (this.soundMode === 'sample' && this.load - this._prevLoad > 0.35 && this.load > 0.7) {
+        this._fireRevSample();
       }
       this._prevLoad = this.load;
       this._applyVoice(false);
