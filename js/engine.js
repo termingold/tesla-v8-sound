@@ -1,7 +1,7 @@
 /**
- * Pulse-driven V8 synthesizer (original).
- * NO continuous jet/whoosh noise — combustion impulse train is the voice.
- * Inspired by publicly described TesRev behaviour (pulses + gearbox), not their code/assets.
+ * Pulse-driven V8 (original) — BufferSource impulse loop + oscillators.
+ * No ScriptProcessor (silent/broken on some Tesla/Chromium builds).
+ * No continuous jet noise.
  */
 (function (global) {
   'use strict';
@@ -14,13 +14,11 @@
       idleRpm: 700,
       redline: 6500,
       gears: 6,
-      // Cross-plane bank unevenness → idle lope (not a turbine)
-      cylWeights: [1.0, 0.45, 0.95, 0.4, 1.05, 0.42, 0.9, 0.48],
+      cylWeights: [1.0, 0.42, 0.95, 0.38, 1.05, 0.4, 0.9, 0.45],
       fireFrac: [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875],
-      toneBright: 0.35,
+      toneBright: 0.4,
       rumble: 1.0,
-      crackle: 0.85,
-      pulseDecay: 0.0018, // per-sample-ish scale (tuned in processor)
+      crackle: 0.8,
     },
     'v8-flat': {
       id: 'v8-flat',
@@ -31,10 +29,9 @@
       gears: 7,
       cylWeights: [1, 0.97, 1.02, 0.98, 1.0, 0.99, 1.01, 0.98],
       fireFrac: [0, 0.25, 0.5, 0.75, 0.125, 0.375, 0.625, 0.875],
-      toneBright: 0.7,
+      toneBright: 0.75,
       rumble: 0.35,
-      crackle: 0.7,
-      pulseDecay: 0.0022,
+      crackle: 0.65,
     },
     'i6-na': {
       id: 'i6-na',
@@ -48,7 +45,6 @@
       toneBright: 0.55,
       rumble: 0.5,
       crackle: 0.4,
-      pulseDecay: 0.002,
     },
   };
 
@@ -60,6 +56,52 @@
     return Math.max(a, Math.min(b, v));
   }
 
+  /** One 4-stroke cycle of uneven combustion pulses (procedural, no samples). */
+  function makePulseCycleBuffer(ctx, engine) {
+    const idle = engine.idleRpm;
+    // Duration of two crank revolutions at idle (= full firing order once)
+    const dur = 120 / idle; // seconds
+    const sr = ctx.sampleRate;
+    const n = Math.max(2048, Math.floor(sr * dur));
+    const buf = ctx.createBuffer(1, n, sr);
+    const d = buf.getChannelData(0);
+    const cyl = engine.cylinders;
+    const decaySamples = Math.floor(sr * 0.012); // ~12 ms pulse tail
+
+    for (let c = 0; c < cyl; c++) {
+      const start = Math.floor((engine.fireFrac[c] % 1) * n);
+      const amp = (engine.cylWeights[c] || 1) * 0.9;
+      for (let i = 0; i < decaySamples; i++) {
+        const idx = (start + i) % n;
+        const t = i / sr;
+        const env = Math.exp(-t * 180) - Math.exp(-t * 900); // thumpy click
+        // Low-ish tonal click (not broadband hiss)
+        const tone =
+          Math.sin(2 * Math.PI * 90 * t) * 0.7 +
+          Math.sin(2 * Math.PI * 180 * t) * 0.35 +
+          Math.sin(2 * Math.PI * 270 * t) * 0.15 * engine.toneBright;
+        d[idx] += amp * env * tone;
+      }
+    }
+    // Normalize
+    let peak = 0.001;
+    for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(d[i]));
+    const norm = 0.95 / peak;
+    for (let i = 0; i < n; i++) d[i] *= norm;
+    return buf;
+  }
+
+  function makeCrackleBuffer(ctx) {
+    const n = Math.floor(ctx.sampleRate * 0.04);
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) {
+      const env = Math.exp(-i / (ctx.sampleRate * 0.012));
+      d[i] = (Math.random() * 2 - 1) * env * 0.8;
+    }
+    return buf;
+  }
+
   class EngineSynth {
     constructor() {
       this.ctx = null;
@@ -67,8 +109,8 @@
       this.engineId = 'v8-cross';
       this.rpm = 700;
       this.targetRpm = 700;
-      this.load = 0.12;
-      this.volume = 0.65;
+      this.load = 0.14;
+      this.volume = 0.7;
       this.gear = 1;
       this.manualShift = false;
       this.shiftHoldUntil = 0;
@@ -79,20 +121,8 @@
       this._lastT = 0;
       this._prevLoad = 0.2;
       this._shifting = false;
-      this._crackleUntil = 0;
-
-      // Shared with ScriptProcessor (audio thread reads these)
-      this._shared = {
-        rpm: 700,
-        load: 0.12,
-        cylWeights: ENGINES['v8-cross'].cylWeights.slice(),
-        fireFrac: ENGINES['v8-cross'].fireFrac.slice(),
-        cylinders: 8,
-        toneBright: 0.35,
-        rumble: 1,
-        pulseDecay: 0.0018,
-        crackleBurst: 0,
-      };
+      this.lastError = null;
+      this.audioState = 'idle';
     }
 
     get engine() {
@@ -108,37 +138,45 @@
     async ensureContext() {
       if (!this.ctx) {
         const AC = window.AudioContext || window.webkitAudioContext;
-        this.ctx = new AC({ latencyHint: 'interactive' });
+        if (!AC) throw new Error('Web Audio API fehlt in diesem Browser');
+        this.ctx = new AC();
       }
-      if (this.ctx.state === 'suspended') await this.ctx.resume();
+      // Critical: unlock on user gesture
+      if (this.ctx.state === 'suspended') {
+        await this.ctx.resume();
+      }
+      this.audioState = this.ctx.state;
       return this.ctx;
     }
 
-    _syncShared() {
-      const e = this.engine;
-      const s = this._shared;
-      s.rpm = this.rpm;
-      s.load = this.load;
-      s.cylWeights = e.cylWeights;
-      s.fireFrac = e.fireFrac;
-      s.cylinders = e.cylinders;
-      s.toneBright = e.toneBright;
-      s.rumble = e.rumble;
-      s.pulseDecay = e.pulseDecay;
-    }
-
     async start() {
-      await this.ensureContext();
-      if (this.running) return;
-      this._buildGraph();
-      this.running = true;
-      this.rpm = this.engine.idleRpm;
-      this.targetRpm = this.rpm;
-      this.load = 0.14;
-      this.gear = 1;
-      this._syncShared();
-      this._lastT = this.ctx.currentTime;
-      this._tick = requestAnimationFrame(() => this._loop());
+      this.lastError = null;
+      try {
+        await this.ensureContext();
+        // Second resume after graph build (some mobile browsers need it)
+        if (this.ctx.state === 'suspended') await this.ctx.resume();
+        if (this.running) {
+          this.audioState = this.ctx.state;
+          return;
+        }
+        this._buildGraph();
+        if (this.ctx.state === 'suspended') await this.ctx.resume();
+        this.running = true;
+        this.rpm = this.engine.idleRpm;
+        this.targetRpm = this.rpm;
+        this.load = 0.18; // audible idle load
+        this.gear = 1;
+        this._lastT = this.ctx.currentTime;
+        this._applyVoice(true);
+        // Audible proof-of-life click then idle
+        this._startClick();
+        this.audioState = this.ctx.state;
+        this._tick = requestAnimationFrame(() => this._loop());
+      } catch (err) {
+        this.lastError = String(err && err.message ? err.message : err);
+        this.audioState = this.ctx ? this.ctx.state : 'error';
+        throw err;
+      }
     }
 
     stop() {
@@ -147,6 +185,7 @@
       if (this._tick) cancelAnimationFrame(this._tick);
       this._tick = null;
       this._teardown();
+      this.audioState = this.ctx ? this.ctx.state : 'stopped';
     }
 
     setEngine(id) {
@@ -167,8 +206,8 @@
 
     setVolume(v) {
       this.volume = clamp(v, 0, 1);
-      if (this._outGain && this.ctx) {
-        this._outGain.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.04);
+      if (this._master && this.ctx) {
+        this._master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.03);
       }
     }
 
@@ -179,9 +218,9 @@
       const now = performance.now();
       let load;
       if (typeof accelHint === 'number' && !Number.isNaN(accelHint)) {
-        load = clamp(0.1 + accelHint * 0.95, 0.02, 1);
+        load = clamp(0.12 + accelHint * 0.95, 0.05, 1);
       } else {
-        load = speed < 2 ? 0.14 : clamp(0.25 + speed / 220, 0.2, 0.7);
+        load = speed < 2 ? 0.18 : clamp(0.28 + speed / 220, 0.22, 0.75);
       }
       if (!this.manualShift || now > this.shiftHoldUntil) {
         this.manualShift = false;
@@ -191,7 +230,7 @@
         speed > 0.5 ? ((speed / 3.6) / (2 * Math.PI * WHEEL_RADIUS)) * 60 : 0;
       const ratio = GEAR_RATIOS[this.gear] || 1.5;
       let rpm = wheelRpm * ratio * FINAL_DRIVE;
-      if (speed < 1.2) rpm = e.idleRpm * (1 + load * 0.15);
+      if (speed < 1.2) rpm = e.idleRpm * (1 + load * 0.12);
       else if (load < 0.2) rpm *= 0.9;
       else rpm *= 1 + load * 0.05;
       if (load > 0.85 && rpm > e.redline * 0.98 && this.gear < this.maxGear) {
@@ -260,24 +299,22 @@
       }
       this.targetRpm = Math.min(this.engine.redline * 0.94, this.rpm * 1.38);
       this.rpm = Math.min(this.engine.redline * 0.95, this.rpm * 1.32);
-      this._shared.crackleBurst = 0.9;
+      this._fireCrackle(3);
       setTimeout(() => {
         this._shifting = false;
       }, 200);
     }
 
-    /** Demo: long idle lope first (diagnostic vs airplane), then drive. */
     playDemoDrive() {
       this.stopDemo();
       if (!this.running) return;
       this.demoActive = true;
       const e = this.engine;
       const steps = [
-        // ~5 s clear idle lope — must sound like V8, not jet
-        { t: 0, rpm: e.idleRpm, load: 0.15, gear: 1, speed: 0 },
-        { t: 5.0, rpm: e.idleRpm * 1.02, load: 0.16, gear: 1, speed: 0 },
-        { t: 5.5, rpm: e.redline * 0.4, load: 0.85, gear: 1, speed: 0 },
-        { t: 6.0, rpm: e.idleRpm, load: 0.12, gear: 1, speed: 0, crackle: true },
+        { t: 0, rpm: e.idleRpm, load: 0.2, gear: 1, speed: 0 },
+        { t: 5.0, rpm: e.idleRpm * 1.02, load: 0.22, gear: 1, speed: 0 },
+        { t: 5.5, rpm: e.redline * 0.4, load: 0.9, gear: 1, speed: 0 },
+        { t: 6.0, rpm: e.idleRpm, load: 0.15, gear: 1, speed: 0, crackle: true },
         { t: 6.8, rpm: e.redline * 0.55, load: 1.0, gear: 1, speed: 30 },
         { t: 8.0, rpm: e.redline * 0.92, load: 1.0, gear: 1, speed: 55 },
         { t: 8.2, rpm: e.redline * 0.6, load: 0.95, gear: 2, speed: 60 },
@@ -285,13 +322,11 @@
         { t: 9.7, rpm: e.redline * 0.58, load: 0.95, gear: 3, speed: 100 },
         { t: 11.0, rpm: e.redline * 0.85, load: 0.9, gear: 3, speed: 130 },
         { t: 11.5, rpm: e.redline * 0.5, load: 0.05, gear: 3, speed: 125, crackle: true },
-        { t: 12.8, rpm: e.redline * 0.45, load: 0.06, gear: 2, speed: 80 },
-        { t: 14.0, rpm: e.idleRpm * 2.2, load: 0.1, gear: 2, speed: 40 },
-        { t: 14.6, rpm: e.redline * 0.88, load: 1.0, gear: 2, speed: 70 },
-        { t: 16.0, rpm: e.redline * 0.7, load: 0.7, gear: 3, speed: 110 },
-        { t: 17.5, rpm: e.redline * 0.35, load: 0.05, gear: 3, speed: 60, crackle: true },
-        { t: 19.0, rpm: e.idleRpm, load: 0.14, gear: 1, speed: 0 },
-        { t: 21.0, rpm: e.idleRpm, load: 0.14, gear: 1, speed: 0, end: true },
+        { t: 13.0, rpm: e.idleRpm * 2, load: 0.12, gear: 2, speed: 40 },
+        { t: 14.0, rpm: e.redline * 0.88, load: 1.0, gear: 2, speed: 70 },
+        { t: 16.0, rpm: e.redline * 0.65, load: 0.6, gear: 3, speed: 110 },
+        { t: 17.5, rpm: e.idleRpm, load: 0.18, gear: 1, speed: 0, crackle: true },
+        { t: 20.0, rpm: e.idleRpm, load: 0.18, gear: 1, speed: 0, end: true },
       ];
       const t0 = performance.now();
       let i = 0;
@@ -308,11 +343,11 @@
         this._demoSpeed = a.speed + (b.speed - a.speed) * u;
         if (a.crackle && !a._cr) {
           a._cr = true;
-          this._shared.crackleBurst = 1;
+          this._fireCrackle(5);
         }
-        if (a.end || elapsed > 22) {
+        if (a.end || elapsed > 21) {
           this.demoActive = false;
-          this.load = 0.14;
+          this.load = 0.18;
           this.targetRpm = e.idleRpm;
           this.gear = 1;
           this._demoSpeed = 0;
@@ -332,174 +367,166 @@
       return this._demoSpeed || 0;
     }
 
+    _startClick() {
+      if (!this.ctx || !this._master) return;
+      const t = this.ctx.currentTime;
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.frequency.value = 120;
+      o.type = 'sine';
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+      o.connect(g);
+      g.connect(this._master);
+      o.start(t);
+      o.stop(t + 0.1);
+    }
+
+    _fireCrackle(count) {
+      if (!this.ctx || !this._crackleBuf || !this._master) return;
+      const t0 = this.ctx.currentTime;
+      for (let i = 0; i < count; i++) {
+        const src = this.ctx.createBufferSource();
+        src.buffer = this._crackleBuf;
+        const g = this.ctx.createGain();
+        g.gain.value = 0.15 + Math.random() * 0.25 * this.engine.crackle;
+        src.connect(g);
+        g.connect(this._master);
+        src.start(t0 + i * (0.04 + Math.random() * 0.05));
+      }
+    }
+
     _buildGraph() {
       const ctx = this.ctx;
+      const e = this.engine;
       this._teardown();
-      this._syncShared();
-      const shared = this._shared;
 
-      this._outGain = ctx.createGain();
-      this._outGain.gain.value = this.volume;
+      this._master = ctx.createGain();
+      this._master.gain.value = this.volume;
 
-      // Mild tone shaping only — no hiss generator in the path
+      this._pulseGain = ctx.createGain();
+      this._pulseGain.gain.value = 0.7;
+
+      this._bodyGain = ctx.createGain();
+      this._bodyGain.gain.value = 0.2;
+
       this._lp = ctx.createBiquadFilter();
       this._lp.type = 'lowpass';
-      this._lp.frequency.value = 2800;
+      this._lp.frequency.value = 2200;
       this._lp.Q.value = 0.7;
 
       this._hp = ctx.createBiquadFilter();
       this._hp.type = 'highpass';
-      this._hp.frequency.value = 40;
-      this._hp.Q.value = 0.5;
+      this._hp.frequency.value = 45;
 
       this._thump = ctx.createBiquadFilter();
       this._thump.type = 'peaking';
-      this._thump.frequency.value = 90;
+      this._thump.frequency.value = 95;
       this._thump.Q.value = 0.9;
-      this._thump.gain.value = 6;
+      this._thump.gain.value = 7;
 
       this._bark = ctx.createBiquadFilter();
       this._bark.type = 'peaking';
-      this._bark.frequency.value = 480;
+      this._bark.frequency.value = 450;
       this._bark.Q.value = 1.1;
-      this._bark.gain.value = 2;
+      this._bark.gain.value = 3;
 
-      // Core: ScriptProcessor impulse train (pulse-driven, not noise-drone)
-      const bufferSize = 1024;
-      const proc =
-        ctx.createScriptProcessor && ctx.createScriptProcessor(bufferSize, 1, 1);
-      if (!proc) {
-        console.error('ScriptProcessor unavailable');
-        return;
-      }
+      // Pulse loop — the main voice
+      this._pulseBuf = makePulseCycleBuffer(ctx, e);
+      this._pulse = ctx.createBufferSource();
+      this._pulse.buffer = this._pulseBuf;
+      this._pulse.loop = true;
+      this._pulse.playbackRate.value = 1;
+      this._pulse.connect(this._pulseGain);
+      this._pulseGain.connect(this._thump);
 
-      // Processor state (closed over)
-      let cyclePhase = 0; // 0..1 over one crank revolution group (fire cycle)
-      let env = 0;
-      let tonePhase = 0;
-      let subPhase = 0;
-      let lastFireIdx = -1;
-      let crackleEnv = 0;
-      // Tiny noise only for crackle pops (gated), never continuous exhaust whoosh
-      let noiseState = 0;
+      // Body oscillators (quiet, follow RPM) — pulsed via gain, not noise
+      this._body = ctx.createOscillator();
+      this._body.type = 'sawtooth';
+      this._body.frequency.value = 70;
+      this._body.connect(this._bodyGain);
 
-      proc.onaudioprocess = function (ev) {
-        const out = ev.outputBuffer.getChannelData(0);
-        const sr = ctx.sampleRate;
-        const rpm = Math.max(400, shared.rpm || 700);
-        const load = shared.load || 0.1;
-        const cyl = shared.cylinders || 8;
-        const weights = shared.cylWeights;
-        const fracs = shared.fireFrac;
-        const bright = shared.toneBright || 0.35;
-        const rumble = shared.rumble || 1;
-        // Firing rate: 4-stroke → cylinders/2 fires per revolution
-        const revPerSec = rpm / 60;
-        const firePerSec = revPerSec * (cyl / 2);
-        // Advance cycle phase by revolutions (one full set of cyl fires = 2 revs for 4-stroke,
-        // but we map fireFrac over one revolution of the firing order spanning 2 crank revs).
-        // Simpler: treat fireFrac as positions within one firing cycle of length 1,
-        // advanced at firePerSec / cyl (one full cycle of all cylinders).
-        const cyclePerSec = firePerSec / cyl; // complete all-cylinder cycle rate
-        // Short pulses at idle (distinct chugs); slightly longer under load (bark body)
-        const envDecayPerSec = 55 - load * 22; // ~55/s idle → ~33/s WOT
-        const decayCoef = Math.exp(-envDecayPerSec / sr);
+      this._sub = ctx.createOscillator();
+      this._sub.type = 'sine';
+      this._subGain = ctx.createGain();
+      this._subGain.gain.value = 0.15;
+      this._sub.connect(this._subGain);
 
-        if (shared.crackleBurst > 0) {
-          crackleEnv = Math.max(crackleEnv, 0.7 * shared.crackleBurst);
-          shared.crackleBurst *= 0.85;
-          if (shared.crackleBurst < 0.05) shared.crackleBurst = 0;
-        }
-
-        for (let i = 0; i < out.length; i++) {
-          const prev = cyclePhase;
-          cyclePhase += cyclePerSec / sr;
-          if (cyclePhase >= 1) cyclePhase -= 1;
-
-          // Detect cylinder firings crossed in this sample
-          for (let c = 0; c < cyl; c++) {
-            const f = fracs[c] || c / cyl;
-            // crossed fractional fire point
-            const crossed =
-              (prev < f && cyclePhase >= f) ||
-              (prev > cyclePhase && (f >= prev || f < cyclePhase));
-            if (crossed) {
-              const w = weights[c] || 1;
-              // Idle: strong uneven pulses. Load: louder but still pulsed.
-              const hit = w * (0.45 + load * 0.85) * (0.75 + rumble * 0.35);
-              env = Math.max(env, hit);
-              lastFireIdx = c;
-            }
-          }
-
-          env *= decayCoef;
-
-          // Pulse-driven tone (not noise): short harmonic burst on each fire
-          const fund = firePerSec; // Hz of successive fires
-          tonePhase += (fund * 0.5 * Math.PI * 2) / sr; // half-order body
-          subPhase += (revPerSec * Math.PI * 2) / sr;
-
-          // Soft clip pulse shape
-          const pulse = env * env; // emphasize attack a bit less harsh than raw env
-          const fundTone = Math.sin(tonePhase);
-          const h2 = Math.sin(tonePhase * 2) * (0.35 + load * 0.4);
-          const h3 = Math.sin(tonePhase * 3) * bright * (0.15 + load * 0.35);
-          const sub = Math.sin(subPhase) * rumble * (0.25 + (1 - Math.min(1, rpm / 4000)) * 0.35);
-
-          // Very sparse crackle: gated click, not continuous hiss
-          let crack = 0;
-          if (crackleEnv > 0.01) {
-            noiseState = (noiseState * 1103515245 + 12345) & 0x7fffffff;
-            const n = (noiseState / 0x7fffffff) * 2 - 1;
-            crack = n * crackleEnv * crackleEnv * 0.55;
-            crackleEnv *= Math.exp(-25 / sr * 60);
-          }
-
-          // Coast: quieter, darker (multiply highs by load)
-          const coast = 0.35 + load * 0.75;
-          let sample =
-            (pulse * (fundTone * 0.7 + h2 + h3) + pulse * sub * 0.5) * coast + crack;
-
-          // Soft limit
-          if (sample > 1) sample = 1;
-          if (sample < -1) sample = -1;
-          out[i] = sample * 0.55;
-        }
-      };
-
-      this._proc = proc;
-      // Dummy input keeps ScriptProcessor alive in some Chromium builds
-      this._dummy = ctx.createGain();
-      this._dummy.gain.value = 0;
-      const keepAlive = ctx.createOscillator();
-      keepAlive.frequency.value = 1;
-      keepAlive.connect(this._dummy);
-      this._dummy.connect(proc);
-      keepAlive.start();
-      this._keepAlive = keepAlive;
-
-      proc.connect(this._hp);
-      this._hp.connect(this._thump);
       this._thump.connect(this._bark);
       this._bark.connect(this._lp);
-      this._lp.connect(this._outGain);
-      this._outGain.connect(ctx.destination);
+      this._bodyGain.connect(this._lp);
+      this._subGain.connect(this._lp);
+      this._lp.connect(this._hp);
+      this._hp.connect(this._master);
+      this._master.connect(ctx.destination);
+
+      this._crackleBuf = makeCrackleBuffer(ctx);
+
+      this._pulse.start();
+      this._body.start();
+      this._sub.start();
+      this._prevLoad = 0.2;
     }
 
     _teardown() {
+      const stop = (n) => {
+        if (!n) return;
+        try {
+          n.stop();
+        } catch (_) {}
+        try {
+          n.disconnect();
+        } catch (_) {}
+      };
       try {
-        if (this._proc) {
-          this._proc.onaudioprocess = null;
-          this._proc.disconnect();
-        }
-        if (this._outGain) this._outGain.disconnect();
-        if (this._dummy) this._dummy.disconnect();
-        if (this._keepAlive) {
-          try { this._keepAlive.stop(); } catch (e) {}
-          try { this._keepAlive.disconnect(); } catch (e) {}
-        }
+        stop(this._pulse);
+        stop(this._body);
+        stop(this._sub);
+        if (this._master) this._master.disconnect();
       } catch (_) {}
-      this._proc = null;
+      this._pulse = null;
+      this._body = null;
+      this._sub = null;
+    }
+
+    _applyVoice(immediate) {
+      if (!this.ctx || !this._pulse) return;
+      const e = this.engine;
+      const t = this.ctx.currentTime;
+      const tc = immediate ? 0.01 : 0.05;
+      const rpmN = clamp((this.rpm - e.idleRpm) / (e.redline - e.idleRpm), 0, 1.05);
+
+      // playbackRate 1.0 = idle cycle; scales linearly with RPM
+      const rate = clamp(this.rpm / e.idleRpm, 0.5, e.redline / e.idleRpm);
+      this._pulse.playbackRate.setTargetAtTime(rate, t, tc);
+
+      // Pulse loudness: always audible at idle; louder under load; quieter (not silent) on coast
+      const pulseAmp =
+        (0.45 + this.load * 0.5) * (0.85 + e.rumble * 0.2) * (this.load < 0.15 ? 0.75 : 1);
+      this._pulseGain.gain.setTargetAtTime(pulseAmp, t, tc);
+
+      // Body follows firing-ish frequency
+      const fireHz = (this.rpm / 60) * (e.cylinders / 2);
+      const bodyF = Math.max(55, fireHz * 0.5);
+      this._body.frequency.setTargetAtTime(bodyF, t, tc);
+      this._bodyGain.gain.setTargetAtTime(
+        (0.04 + this.load * 0.14) * (0.5 + rpmN * 0.6) * e.toneBright,
+        t,
+        tc
+      );
+
+      this._sub.frequency.setTargetAtTime(Math.max(35, this.rpm / 60), t, tc);
+      this._subGain.gain.setTargetAtTime(
+        (0.08 + this.load * 0.1) * e.rumble * (1 - rpmN * 0.4),
+        t,
+        tc
+      );
+
+      const cut = 1000 + rpmN * 2800 + this.load * 1200 - (this.load < 0.2 ? 400 : 0);
+      this._lp.frequency.setTargetAtTime(clamp(cut, 600, 6500), t, tc);
+      this._bark.gain.setTargetAtTime(2 + this.load * 6, t, tc);
+      this._thump.gain.setTargetAtTime(5 + e.rumble * 3 * (1 - rpmN * 0.5), t, tc);
     }
 
     _loop() {
@@ -507,32 +534,22 @@
       const t = this.ctx.currentTime;
       const dt = Math.min(0.05, Math.max(0.008, t - (this._lastT || t - 0.016)));
       this._lastT = t;
-      const e = this.engine;
 
-      const lag = this.load > 0.5 ? 0.05 : 0.12;
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+      this.audioState = this.ctx.state;
+
+      const lag = this.load > 0.5 ? 0.05 : 0.11;
       this.rpm += (this.targetRpm - this.rpm) * Math.min(1, dt / lag);
-      this.rpm = clamp(this.rpm, e.idleRpm * 0.85, e.redline * 1.05);
+      this.rpm = clamp(this.rpm, this.engine.idleRpm * 0.85, this.engine.redline * 1.05);
 
       const dLoad = this._prevLoad - this.load;
-      if (dLoad > 0.25 && this.rpm > e.idleRpm * 1.5) {
-        this._shared.crackleBurst = Math.min(1.2, dLoad * 2.2 * e.crackle);
+      if (dLoad > 0.28 && this.rpm > this.engine.idleRpm * 1.5) {
+        this._fireCrackle(2 + Math.floor(dLoad * 6));
       }
       this._prevLoad = this.load;
-      this._syncShared();
-
-      const rpmN = clamp((this.rpm - e.idleRpm) / (e.redline - e.idleRpm), 0, 1);
-      // Tone stack follows load — darker on coast (engine braking), bark on throttle
-      if (this._lp) {
-        const cut = 900 + rpmN * 2200 + this.load * 1400 - (this.load < 0.2 ? 500 : 0);
-        this._lp.frequency.setTargetAtTime(clamp(cut, 500, 6000), t, 0.05);
-      }
-      if (this._bark) {
-        this._bark.gain.setTargetAtTime(1 + this.load * 7 * (0.4 + rpmN), t, 0.06);
-        this._bark.frequency.setTargetAtTime(380 + rpmN * 350, t, 0.08);
-      }
-      if (this._thump) {
-        this._thump.gain.setTargetAtTime(4 + e.rumble * 4 * (1 - rpmN * 0.6), t, 0.08);
-      }
+      this._applyVoice(false);
 
       this._tick = requestAnimationFrame(() => this._loop());
     }

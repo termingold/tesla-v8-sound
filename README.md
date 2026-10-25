@@ -1,4 +1,11 @@
 
+## v5 Sound-Fix („kein Sound“)
+
+v4 nutzte `ScriptProcessor` — in manchen Chromium/Tesla-Builds **stumm**.
+v5: **BufferSource-Pulsschleife** + Oszillatoren, `audioContext.resume()` beim Start-Tipp,
+kurzer Start-Klick, Audio-Status in der UI, Service-Worker **network-first** (Cache `v5`).
+
+
 ## Anti-Flugzeug-Fix (v4)
 
 Feedback: „hört sich an wie ein Flugzeug“. Ursache: zu viel **Dauerrauschen** (Whoosh).

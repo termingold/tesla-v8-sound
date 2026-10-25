@@ -1,4 +1,4 @@
-const CACHE = 'tesla-v8-sound-v4';
+const CACHE = 'tesla-v8-sound-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -22,18 +22,28 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
-  e.respondWith(
-    caches.match(e.request).then((cached) => {
-      const fetched = fetch(e.request)
+  const url = new URL(e.request.url);
+  const isCode =
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('/');
+  if (isCode) {
+    // Network-first so fixes deploy immediately
+    e.respondWith(
+      fetch(e.request)
         .then((res) => {
-          if (res && res.ok && new URL(e.request.url).origin === self.location.origin) {
+          if (res && res.ok) {
             const copy = res.clone();
             caches.open(CACHE).then((c) => c.put(e.request, copy));
           }
           return res;
         })
-        .catch(() => cached);
-      return cached || fetched;
-    })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
+  e.respondWith(
+    caches.match(e.request).then((cached) => cached || fetch(e.request))
   );
 });

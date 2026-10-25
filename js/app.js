@@ -36,6 +36,7 @@
     simSlower: $('#sim-slower'),
     simFaster: $('#sim-faster'),
     demo: $('#btn-demo'),
+    audioDebug: $('#audio-debug'),
   };
 
   function setStatus(msg) {
@@ -53,12 +54,18 @@
 
   async function startEngine() {
     try {
+      setStatus('Starte Audio…');
       await engine.start();
       el.start.disabled = true;
       el.stop.disabled = false;
       el.rev.disabled = false;
       if (el.demo) el.demo.disabled = false;
-      setStatus('Motor läuft – Lautstärke am Fahrzeug drehen. Tipp: „Demo-Fahrt“ zum Probehören.');
+      const st = engine.audioState || (engine.ctx && engine.ctx.state) || '?';
+      setStatus(
+        'Motor läuft (Audio: ' +
+          st +
+          ') – Idle sollte jetzt hörbar sein. Lautstärke am Auto hoch. Demo-Fahrt testen.'
+      );
       startGps();
       tryMotion();
       if (!uiRunning) {
@@ -66,7 +73,11 @@
         loopUi();
       }
     } catch (err) {
-      setStatus('Audio blockiert – bitte einmal tippen und erneut starten.');
+      setStatus(
+        'Kein Sound: ' +
+          (engine.lastError || err.message || err) +
+          ' – erneut Start tippen (Autoplay-Sperre).'
+      );
       console.error(err);
     }
   }
@@ -194,6 +205,15 @@
     el.speed.textContent = Math.round(speedKmh);
     el.rpm.textContent = Math.round(engine.rpm);
     el.gear.textContent = String(engine.gear);
+    if (el.audioDebug) {
+      el.audioDebug.textContent =
+        'Audio: ' +
+        (engine.audioState || '?') +
+        ' · Vol ' +
+        Math.round(engine.volume * 100) +
+        '% · RPM ' +
+        Math.round(engine.rpm);
+    }
     requestAnimationFrame(loopUi);
   }
 
@@ -317,5 +337,5 @@
   fillEngines();
   engine.setVolume(Number(el.vol.value) / 100);
   if (el.demo) el.demo.disabled = true;
-  setStatus('Bereit – Hard-Reload, dann Start → Demo-Fahrt. Idle muss nach V8 klingen, nicht nach Turbine.');
+  setStatus('Bereit v5 – einmal Hard-Reload, dann START tippen. Idle sofort hörbar (kurzer Klick + Lope).');
 })();

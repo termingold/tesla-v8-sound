@@ -7,13 +7,13 @@
   <meta name="description" content="Kostenloser, prozeduraler V8-Motorsound für den Tesla-Browser – ohne Account, ohne Paywall." />
   <link rel="manifest" href="manifest.webmanifest" />
   <title>Tesla V8 Sound – kostenlos</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=5" />
 </head>
 <body>
   <header>
     <div>
       <h1>Tesla V8 Sound</h1>
-      <p class="tagline">Puls-V8 (kein Flugzeug-Rauschen) · Model Y · kostenlos</p>
+      <p class="tagline">v5 Puls-V8 (BufferSource) · Model Y · kostenlos</p>
     </div>
     <span class="badge">Kein Account · Kein Tracking</span>
   </header>
@@ -72,6 +72,7 @@
     <p class="status" style="margin-top:12px" id="status-line">Lade…</p>
     <p class="status" id="gps-status">GPS: noch nicht gestartet</p>
     <p class="status" id="motion-status">Bewegungssensor: optional</p>
+    <p class="status" id="audio-debug">Audio: warte auf Start</p>
   </section>
 
   <div class="notice">
@@ -95,7 +96,7 @@
     </p>
   </footer>
 
-  <script src="js/engine.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/engine.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>
